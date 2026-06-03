@@ -1,0 +1,18 @@
+{
+  "name": "guarded-alpha-agent",
+  "private": true,
+  "packageManager": "pnpm@11.1.1",
+  "scripts": {
+    "web:dev": "pnpm -C apps/web dev",
+    "web:check": "pnpm -C apps/web check",
+    "web:build": "pnpm -C apps/web build"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "@trustwallet/cli": "0.17.0"
+  }
+}

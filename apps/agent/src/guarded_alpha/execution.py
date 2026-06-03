@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import subprocess
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from guarded_alpha.models import (
+    ExecutionMode,
+    ExecutionReceipt,
+    RiskStatus,
+    RiskVerdict,
+    TradeDecision,
+    now_utc,
+)
+
+SAFE_SYMBOL = re.compile(r"^[A-Z0-9]{2,16}$")
+SAFE_ADDRESS = re.compile(r"^0x[a-fA-F0-9]{40}$")
+
+
+class ExecutionAdapter(Protocol):
+    def execute(self, decision: TradeDecision, risk: RiskVerdict) -> ExecutionReceipt: ...
+
+
+@dataclass(frozen=True)
+class DryRunExecutionAdapter:
+    def execute(self, decision: TradeDecision, risk: RiskVerdict) -> ExecutionReceipt:
+        return ExecutionReceipt(
+            mode=ExecutionMode.DRY_RUN,
+            submitted=False,
+            tx_hash=None,
+            command=[],
+            quote={"expected_symbol": decision.symbol, "notional_usd": decision.notional_usd},
+            message=f"Dry-run only. Risk status: {risk.status.value}.",
+            executed_at=now_utc(),
+        )
+
+
+@dataclass(frozen=True)
+class TWAKExecutionAdapter:
+    twak_bin: str
+    competition_contract: str
+    timeout_seconds: int = 45
+
+    def execute(self, decision: TradeDecision, risk: RiskVerdict) -> ExecutionReceipt:
+        if risk.status != RiskStatus.APPROVED:
+            return ExecutionReceipt(
+                mode=ExecutionMode.LIVE,
+                submitted=False,
+                tx_hash=None,
+                command=[],
+                quote={},
+                message="Risk gate rejected execution.",
+                executed_at=now_utc(),
+            )
+        if not decision.symbol or not SAFE_SYMBOL.match(decision.symbol):
+            raise ValueError("unsafe or missing token symbol")
+
+        quote_command = [
+            "swap",
+            f"{decision.notional_usd:.2f}",
+            "USDT",
+            decision.symbol,
+            "--quote-only",
+            "--chain",
+            "bsc",
+        ]
+        quote = self._run_json(quote_command)
+
+        swap_command = [
+            "swap",
+            f"{decision.notional_usd:.2f}",
+            "USDT",
+            decision.symbol,
+            "--chain",
+            "bsc",
+        ]
+        result = self._run_json(swap_command)
+        return ExecutionReceipt(
+            mode=ExecutionMode.LIVE,
+            submitted=True,
+            tx_hash=result.get("txHash") or result.get("tx_hash"),
+            command=[*self._base_command(), *swap_command],
+            quote=quote,
+            message="Submitted through TWAK.",
+            executed_at=now_utc(),
+        )
+
+    def wallet_status(self) -> dict[str, Any]:
+        return self._run_json(["wallet", "status", "--json"])
+
+    def wallet_portfolio(self) -> dict[str, Any]:
+        return self._run_json(["wallet", "portfolio", "--chains", "bsc", "--json"])
+
+    def competition_status(self) -> dict[str, Any]:
+        return self._run_json(["compete", "status", "--json"])
+
+    def register_competition(self) -> dict[str, Any]:
+        if not SAFE_ADDRESS.match(self.competition_contract):
+            raise ValueError("unsafe competition contract address")
+        return self._run_json(["compete", "register", "--json"])
+
+    def _run_json(self, args: list[str]) -> dict[str, Any]:
+        self._validate_args(args)
+        completed = subprocess.run(
+            [*self._base_command(), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=self.timeout_seconds,
+        )
+        if completed.returncode != 0:
+            error_text = (
+                completed.stderr.strip() or completed.stdout.strip() or "unknown TWAK error"
+            )
+            raise RuntimeError(f"twak command failed: {error_text}")
+        stdout = completed.stdout.strip()
+        if not stdout:
+            return {}
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError:
+            return {"raw": stdout}
+
+    def _validate_args(self, args: list[str]) -> None:
+        allowed_prefixes = {
+            ("wallet", "status"),
+            ("wallet", "portfolio"),
+            ("swap",),
+            ("compete", "register"),
+            ("compete", "status"),
+        }
+        if not any(tuple(args[: len(prefix)]) == prefix for prefix in allowed_prefixes):
+            raise ValueError("twak command is not allowlisted")
+        for arg in args:
+            if any(char in arg for char in [";", "|", "&", "`", "$", "\n", "\r"]):
+                raise ValueError("unsafe shell metacharacter in argument")
+
+    def _base_command(self) -> list[str]:
+        if self.twak_bin == "twak" and shutil.which("twak") is None:
+            return ["pnpm", "exec", "twak"]
+        return [self.twak_bin]

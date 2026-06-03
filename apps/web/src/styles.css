@@ -1,0 +1,346 @@
+:root {
+  color: #172019;
+  background: #f4f6f3;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button {
+  font: inherit;
+}
+
+.shell {
+  width: min(1180px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 28px 0 40px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  color: #657064;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 1rem;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.iconButton,
+.primaryButton {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 7px;
+  border: 1px solid #c9d1c8;
+  cursor: pointer;
+  padding: 0 14px;
+}
+
+.iconButton {
+  color: #172019;
+  background: #ffffff;
+}
+
+.primaryButton {
+  color: #ffffff;
+  background: #1f6f52;
+  border-color: #1f6f52;
+}
+
+.iconButton:disabled,
+.primaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  border: 1px solid;
+}
+
+.dangerNotice {
+  color: #7c1d1d;
+  background: #fff1f1;
+  border-color: #f3b6b6;
+}
+
+.statusGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.metric,
+.panel {
+  background: #ffffff;
+  border: 1px solid #d9ded8;
+  border-radius: 8px;
+}
+
+.metric {
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+.metric svg {
+  color: #227a5a;
+}
+
+.metric span,
+.receiptGrid span,
+.mandateGrid span,
+.subtle {
+  display: block;
+  color: #667066;
+  font-size: 0.82rem;
+}
+
+.metric strong,
+.receiptGrid strong,
+.mandateGrid strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1rem;
+}
+
+.panelGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.competitionPanel {
+  margin-bottom: 16px;
+}
+
+.competitionActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.resultBox {
+  max-height: 220px;
+  overflow: auto;
+  margin: 14px 0 0;
+  padding: 12px;
+  border-radius: 7px;
+  background: #101814;
+  color: #d7f3e5;
+  font-size: 0.82rem;
+}
+
+.panel {
+  padding: 18px;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.pill.ok {
+  color: #0f5132;
+  background: #d7f3e5;
+}
+
+.pill.warn {
+  color: #714500;
+  background: #ffedc2;
+}
+
+.pill.danger {
+  color: #842029;
+  background: #f8d7da;
+}
+
+.pill.idle {
+  color: #354052;
+  background: #e6eaf0;
+}
+
+.decisionBody {
+  display: grid;
+  gap: 12px;
+}
+
+.decisionSymbol {
+  font-size: 2.6rem;
+  line-height: 1;
+  font-weight: 850;
+  color: #172019;
+}
+
+.decisionStats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #354052;
+  font-weight: 700;
+}
+
+.decisionBody p,
+.empty {
+  color: #59635a;
+  line-height: 1.5;
+}
+
+.mandateGrid,
+.receiptGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.receiptGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.wide {
+  grid-column: span 4;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid #edf0ed;
+  white-space: nowrap;
+}
+
+th {
+  color: #667066;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.positive {
+  color: #13784d;
+}
+
+.negative {
+  color: #b42318;
+}
+
+.checks {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checks li {
+  padding: 10px 12px;
+  background: #f7f9f6;
+  border: 1px solid #e1e7df;
+  border-radius: 7px;
+  color: #354052;
+}
+
+@media (max-width: 860px) {
+  .topbar,
+  .panelHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .iconButton,
+  .primaryButton {
+    flex: 1;
+  }
+
+  .statusGrid,
+  .competitionActions,
+  .panelGrid,
+  .receiptGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .wide {
+    grid-column: span 1;
+  }
+}

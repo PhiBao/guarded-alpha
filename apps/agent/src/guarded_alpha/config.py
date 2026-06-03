@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from guarded_alpha.competition import COMPETITION_CONTRACT, ELIGIBLE_TOKENS
+from guarded_alpha.env import load_dotenv
+from guarded_alpha.models import AgentMandate
+
+DEFAULT_ELIGIBLE_SYMBOLS = {
+    "USDT",
+    "USDC",
+    "FDUSD",
+    "ETH",
+    "CAKE",
+    "TWT",
+    "LINK",
+    "AAVE",
+    "PENDLE",
+    "ASTER",
+}
+
+DEFAULT_STABLE_SYMBOLS = {"USDT", "USDC", "FDUSD"}
+
+
+@dataclass(frozen=True)
+class AppConfig:
+    data_dir: Path
+    audit_path: Path
+    live_trading_enabled: bool
+    twak_bin: str
+    cmc_bin: str
+    cmc_api_key: str | None
+    cmc_use_fixtures: bool
+    portfolio_use_fixtures: bool
+    competition_contract: str
+    min_daily_trade_usd: float
+    qualification_trade_enabled: bool
+    mandate: AgentMandate
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return float(raw)
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return int(raw)
+
+
+def _symbols_env(name: str, default: set[str]) -> set[str]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return set(default)
+    return {item.strip().upper() for item in raw.split(",") if item.strip()}
+
+
+def load_config() -> AppConfig:
+    load_dotenv()
+    data_dir = Path(os.getenv("GUARDED_ALPHA_DATA_DIR", "data"))
+    audit_path = data_dir / "audit.jsonl"
+    kill_switch_path = os.getenv("GUARDED_ALPHA_KILL_SWITCH_PATH", str(data_dir / "KILL_SWITCH"))
+
+    mandate = AgentMandate(
+        eligible_symbols=_symbols_env("ELIGIBLE_SYMBOLS", DEFAULT_ELIGIBLE_SYMBOLS),
+        stable_symbols=_symbols_env("STABLE_SYMBOLS", DEFAULT_STABLE_SYMBOLS),
+        max_drawdown_pct=_float_env("MAX_DRAWDOWN_PCT", 15.0),
+        daily_loss_limit_pct=_float_env("DAILY_LOSS_LIMIT_PCT", 4.0),
+        max_trade_pct=_float_env("MAX_TRADE_PCT", 10.0),
+        max_slippage_bps=_int_env("MAX_SLIPPAGE_BPS", 80),
+        min_stable_reserve_pct=_float_env("MIN_STABLE_RESERVE_PCT", 40.0),
+        min_signal_score=_float_env("MIN_SIGNAL_SCORE", 0.35),
+        max_data_age_seconds=_int_env("MAX_DATA_AGE_SECONDS", 600),
+        kill_switch_path=kill_switch_path,
+    )
+
+    return AppConfig(
+        data_dir=data_dir,
+        audit_path=audit_path,
+        live_trading_enabled=_bool_env("LIVE_TRADING_ENABLED", False),
+        twak_bin=os.getenv("TWAK_BIN", "twak"),
+        cmc_bin=os.getenv("CMC_BIN", "cmc"),
+        cmc_api_key=os.getenv("CMC_API_KEY"),
+        cmc_use_fixtures=_bool_env("CMC_USE_FIXTURES", True),
+        portfolio_use_fixtures=_bool_env("PORTFOLIO_USE_FIXTURES", True),
+        competition_contract=os.getenv("COMPETITION_CONTRACT", COMPETITION_CONTRACT),
+        min_daily_trade_usd=_float_env("MIN_DAILY_TRADE_USD", 5.0),
+        qualification_trade_enabled=_bool_env("QUALIFICATION_TRADE_ENABLED", True),
+        mandate=mandate,
+    )
+
+
+def competition_eligible_symbols() -> set[str]:
+    return set(ELIGIBLE_TOKENS)
