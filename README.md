@@ -149,7 +149,9 @@ VITE_DEMO_URL=https://example.com/demo \
 pnpm -C apps/web build
 ```
 
-GitHub Actions handles deployment through `.github/workflows/pages.yml`, so `apps/web/dist` should stay uncommitted. In the repository settings, set Pages source to **GitHub Actions**. Optionally set repository variable `VITE_DEMO_URL` to show the **Watch Demo** button.
+GitHub Actions handles deployment through `.github/workflows/pages.yml`, so `apps/web/dist` should stay uncommitted.
+
+Before the first deploy, open repository **Settings -> Pages** and set **Build and deployment -> Source** to **GitHub Actions**. If Pages is not enabled there, `actions/deploy-pages` returns `404 Not Found` even when the artifact upload succeeds. Optionally set repository variable `VITE_DEMO_URL` to show the **Watch Demo** button.
 
 ## Trading Commands
 

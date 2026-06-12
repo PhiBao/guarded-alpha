@@ -43,6 +43,9 @@ jobs:
           VITE_REPO_URL: https://github.com/${{ github.repository }}
           VITE_DEMO_URL: ${{ vars.VITE_DEMO_URL }}
 
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
