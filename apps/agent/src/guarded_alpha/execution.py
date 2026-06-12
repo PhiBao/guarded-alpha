@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from guarded_alpha.models import (
+    DecisionAction,
     ExecutionMode,
     ExecutionReceipt,
     RiskStatus,
@@ -42,6 +43,7 @@ class DryRunExecutionAdapter:
 class TWAKExecutionAdapter:
     twak_bin: str
     competition_contract: str
+    source_symbol: str = "USDC"
     timeout_seconds: int = 45
 
     def execute(self, decision: TradeDecision, risk: RiskVerdict) -> ExecutionReceipt:
@@ -57,25 +59,30 @@ class TWAKExecutionAdapter:
             )
         if not decision.symbol or not SAFE_SYMBOL.match(decision.symbol):
             raise ValueError("unsafe or missing token symbol")
+        from_symbol, to_symbol = self._route(decision)
 
         quote_command = [
             "swap",
+            from_symbol,
+            to_symbol,
+            "--usd",
             f"{decision.notional_usd:.2f}",
-            "USDT",
-            decision.symbol,
             "--quote-only",
             "--chain",
             "bsc",
+            "--json",
         ]
         quote = self._run_json(quote_command)
 
         swap_command = [
             "swap",
+            from_symbol,
+            to_symbol,
+            "--usd",
             f"{decision.notional_usd:.2f}",
-            "USDT",
-            decision.symbol,
             "--chain",
             "bsc",
+            "--json",
         ]
         result = self._run_json(swap_command)
         return ExecutionReceipt(
@@ -88,11 +95,44 @@ class TWAKExecutionAdapter:
             executed_at=now_utc(),
         )
 
+    def _route(self, decision: TradeDecision) -> tuple[str, str]:
+        if decision.action == DecisionAction.SELL:
+            from_symbol = str(decision.inputs.get("from_symbol") or decision.symbol or "").upper()
+            to_symbol = str(decision.inputs.get("to_symbol") or self.source_symbol).upper()
+        else:
+            from_symbol = str(decision.inputs.get("from_symbol") or self.source_symbol).upper()
+            to_symbol = str(decision.inputs.get("to_symbol") or decision.symbol or "").upper()
+        if not SAFE_SYMBOL.match(from_symbol) or not SAFE_SYMBOL.match(to_symbol):
+            raise ValueError("unsafe swap route")
+        if from_symbol == to_symbol:
+            raise ValueError("swap route must change symbols")
+        return from_symbol, to_symbol
+
     def wallet_status(self) -> dict[str, Any]:
         return self._run_json(["wallet", "status", "--json"])
 
+    def wallet_addresses(self) -> dict[str, Any]:
+        return self._run_json(["wallet", "addresses", "--json"])
+
     def wallet_portfolio(self) -> dict[str, Any]:
         return self._run_json(["wallet", "portfolio", "--chains", "bsc", "--json"])
+
+    def quote_swap(self, amount_usd: float, from_symbol: str, to_symbol: str) -> dict[str, Any]:
+        if not SAFE_SYMBOL.match(from_symbol) or not SAFE_SYMBOL.match(to_symbol):
+            raise ValueError("unsafe token symbol")
+        return self._run_json(
+            [
+                "swap",
+                from_symbol,
+                to_symbol,
+                "--usd",
+                f"{amount_usd:.2f}",
+                "--quote-only",
+                "--chain",
+                "bsc",
+                "--json",
+            ]
+        )
 
     def competition_status(self) -> dict[str, Any]:
         return self._run_json(["compete", "status", "--json"])
@@ -127,6 +167,7 @@ class TWAKExecutionAdapter:
     def _validate_args(self, args: list[str]) -> None:
         allowed_prefixes = {
             ("wallet", "status"),
+            ("wallet", "addresses"),
             ("wallet", "portfolio"),
             ("swap",),
             ("compete", "register"),

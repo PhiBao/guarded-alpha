@@ -1,5 +1,6 @@
 import pytest
 from guarded_alpha.execution import TWAKExecutionAdapter
+from guarded_alpha.models import DecisionAction, TradeDecision
 
 
 def test_twak_adapter_rejects_unallowlisted_command() -> None:
@@ -27,3 +28,23 @@ def test_twak_adapter_allows_wallet_portfolio() -> None:
     adapter = TWAKExecutionAdapter("twak", "0x212c61b9b72c95d95bf29cf032f5e5635629aed5")
 
     adapter._validate_args(["wallet", "portfolio", "--chains", "bsc", "--json"])
+
+
+def test_twak_adapter_allows_wallet_addresses() -> None:
+    adapter = TWAKExecutionAdapter("twak", "0x212c61b9b72c95d95bf29cf032f5e5635629aed5")
+
+    adapter._validate_args(["wallet", "addresses", "--json"])
+
+
+def test_twak_adapter_routes_sell_to_source_symbol() -> None:
+    adapter = TWAKExecutionAdapter("twak", "0x212c61b9b72c95d95bf29cf032f5e5635629aed5")
+    decision = TradeDecision(
+        action=DecisionAction.SELL,
+        symbol="ETH",
+        score=-0.2,
+        notional_usd=5.0,
+        reason="test",
+        inputs={"from_symbol": "ETH", "to_symbol": "USDC"},
+    )
+
+    assert adapter._route(decision) == ("ETH", "USDC")

@@ -1,0 +1,15 @@
+[Unit]
+Description=Guarded Alpha hourly scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory={{PROJECT_DIR}}
+Environment=PATH={{PATH}}
+ExecStart={{UV_BIN}} run guarded-alpha-scheduler
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

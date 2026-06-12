@@ -22,6 +22,12 @@ class ExecutionMode(StrEnum):
     LIVE = "live"
 
 
+class VoteDirection(StrEnum):
+    LONG = "long"
+    SHORT = "short"
+    NEUTRAL = "neutral"
+
+
 @dataclass(frozen=True)
 class MarketAsset:
     symbol: str
@@ -68,6 +74,29 @@ class AgentMandate:
 
 
 @dataclass(frozen=True)
+class StrategyVote:
+    name: str
+    direction: VoteDirection
+    signal: float
+    confidence: float
+    weight: float
+    reason: str
+
+
+@dataclass(frozen=True)
+class VibeScore:
+    symbol: str | None
+    score: float
+    confidence: float
+    long_votes: int
+    short_votes: int
+    neutral_votes: int
+    full_consensus: bool
+    votes: list[StrategyVote]
+    breakdown: dict[str, float]
+
+
+@dataclass(frozen=True)
 class TradeDecision:
     action: DecisionAction
     symbol: str | None
@@ -96,15 +125,35 @@ class ExecutionReceipt:
 
 
 @dataclass(frozen=True)
+class RunCard:
+    title: str
+    summary: str
+    bsc_trace_url: str | None
+    proof: dict[str, Any]
+    markdown: str
+
+
+@dataclass(frozen=True)
 class AgentRun:
     run_id: str
     snapshot: MarketSnapshot
     portfolio: PortfolioState
     mandate: AgentMandate
+    vibe_score: VibeScore
     decision: TradeDecision
     risk: RiskVerdict
     receipt: ExecutionReceipt | None
+    run_card: RunCard
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class DailyTradeStatus:
+    date: date
+    required: bool
+    submitted: bool
+    submitted_count: int
+    tx_hashes: list[str]
 
 
 def now_utc() -> datetime:

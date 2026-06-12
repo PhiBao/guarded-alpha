@@ -9,7 +9,11 @@ from guarded_alpha.execution import TWAKExecutionAdapter
 
 def status_main() -> None:
     config = load_config()
-    adapter = TWAKExecutionAdapter(config.twak_bin, config.competition_contract)
+    adapter = TWAKExecutionAdapter(
+        config.twak_bin,
+        config.competition_contract,
+        source_symbol=config.trade_source_symbol,
+    )
     try:
         twak_status = adapter.competition_status()
     except RuntimeError as exc:
@@ -29,7 +33,11 @@ def register_main() -> None:
     if not state.is_registration_open:
         raise SystemExit("Registration deadline has passed.")
     config = load_config()
-    adapter = TWAKExecutionAdapter(config.twak_bin, config.competition_contract)
+    adapter = TWAKExecutionAdapter(
+        config.twak_bin,
+        config.competition_contract,
+        source_symbol=config.trade_source_symbol,
+    )
     try:
         result = adapter.register_competition()
     except RuntimeError as exc:

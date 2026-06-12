@@ -27,7 +27,7 @@ class TWAKPortfolioProvider:
         payload = self.adapter.wallet_portfolio()
         return self._parse_portfolio(payload)
 
-    def _parse_portfolio(self, payload: dict[str, Any]) -> PortfolioState:
+    def _parse_portfolio(self, payload: dict[str, Any] | list[dict[str, Any]]) -> PortfolioState:
         rows = self._extract_holdings(payload)
         positions: dict[str, float] = {}
         total_value = 0.0
@@ -57,7 +57,12 @@ class TWAKPortfolioProvider:
             positions=positions,
         )
 
-    def _extract_holdings(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    def _extract_holdings(
+        self,
+        payload: dict[str, Any] | list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
         data = payload.get("data")
         data_holdings = data.get("holdings") if isinstance(data, dict) else None
         data_tokens = data.get("tokens") if isinstance(data, dict) else None

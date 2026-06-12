@@ -58,6 +58,13 @@ h2 {
   font-size: 1rem;
 }
 
+.subtitle {
+  max-width: 560px;
+  margin-top: 8px;
+  color: #59635a;
+  line-height: 1.45;
+}
+
 .actions {
   display: flex;
   gap: 10px;
@@ -112,11 +119,23 @@ h2 {
   border-color: #f3b6b6;
 }
 
+.infoNotice {
+  color: #17416b;
+  background: #edf6ff;
+  border-color: #b8dbff;
+}
+
 .statusGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
+}
+
+.syncLine {
+  margin: 0 0 16px;
+  color: #667066;
+  font-size: 0.82rem;
 }
 
 .metric,
@@ -162,15 +181,80 @@ h2 {
   margin-bottom: 16px;
 }
 
+.missionGrid {
+  align-items: start;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.tabs button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #c9d1c8;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #354052;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tabs button.active {
+  color: #ffffff;
+  background: #172019;
+  border-color: #172019;
+}
+
 .competitionPanel {
   margin-bottom: 16px;
 }
 
 .competitionActions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   align-items: end;
+}
+
+.runtimePanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 1.15fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.runtimePanel h2 {
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+
+.runtimeStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.runtimeStats div {
+  padding: 12px;
+  border: 1px solid #e1e7df;
+  border-radius: 7px;
+  background: #f7f9f6;
+}
+
+.runtimeStats span {
+  display: block;
+  color: #667066;
+  font-size: 0.78rem;
+}
+
+.runtimeStats strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.92rem;
 }
 
 .resultBox {
@@ -182,6 +266,168 @@ h2 {
   background: #101814;
   color: #d7f3e5;
   font-size: 0.82rem;
+}
+
+.missionCopy {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  color: #59635a;
+  font-size: 0.9rem;
+}
+
+.requirementsList {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.requirementsList li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #e1e7df;
+  border-radius: 7px;
+  background: #f7f9f6;
+  color: #354052;
+}
+
+.checkMark {
+  min-width: 38px;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.okText {
+  color: #13784d;
+}
+
+.warnText {
+  color: #9a5b00;
+}
+
+.warningText {
+  margin-bottom: 12px;
+  color: #9a5b00;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.miniHeading {
+  margin: 2px 0 10px;
+}
+
+.pnlGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.pnlGrid div {
+  padding: 12px;
+  border-radius: 7px;
+  border: 1px solid #e1e7df;
+  background: #f7f9f6;
+}
+
+.pnlGrid span,
+.historyRow span {
+  display: block;
+  color: #667066;
+  font-size: 0.78rem;
+}
+
+.pnlGrid strong,
+.historyRow strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.historyList {
+  display: grid;
+  gap: 8px;
+}
+
+.historyRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 0.8fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 7px;
+  border: 1px solid #edf0ed;
+}
+
+.widePanel {
+  grid-column: span 2;
+}
+
+.voteGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.voteCard {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e1e7df;
+  border-radius: 8px;
+  background: #f7f9f6;
+}
+
+.voteTop,
+.voteStats,
+.voteSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.voteTop strong {
+  text-transform: capitalize;
+}
+
+.voteStats {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  color: #667066;
+  font-size: 0.82rem;
+}
+
+.voteCard p {
+  color: #59635a;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.voteSummary {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.voteSummary strong {
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #f7f9f6;
+  border: 1px solid #e1e7df;
+}
+
+.traceLink {
+  display: inline-flex;
+  margin-top: 12px;
+  color: #1f6f52;
+  font-weight: 800;
+}
+
+.compactReceipt {
+  grid-template-columns: 1fr;
 }
 
 .panel {
@@ -335,12 +581,21 @@ th {
 
   .statusGrid,
   .competitionActions,
+  .pnlGrid,
+  .historyRow,
   .panelGrid,
-  .receiptGrid {
+  .runtimePanel,
+  .runtimeStats,
+  .receiptGrid,
+  .voteGrid {
     grid-template-columns: 1fr;
   }
 
   .wide {
+    grid-column: span 1;
+  }
+
+  .widePanel {
     grid-column: span 1;
   }
 }

@@ -54,7 +54,15 @@ def evaluate_risk(
     if decision.notional_usd > max_trade_notional:
         reasons.append("Decision notional exceeds max trade cap.")
 
-    stable_after = portfolio.stable_value_usd - decision.notional_usd
+    held_value = portfolio.positions.get(decision.symbol.upper(), 0.0) if decision.symbol else 0.0
+    if decision.action == DecisionAction.SELL and decision.notional_usd > held_value:
+        reasons.append("Sell notional exceeds held position value.")
+
+    stable_after = (
+        portfolio.stable_value_usd + decision.notional_usd
+        if decision.action == DecisionAction.SELL
+        else portfolio.stable_value_usd - decision.notional_usd
+    )
     stable_after_pct = (stable_after / portfolio.total_value_usd) * 100.0
     if stable_after_pct < mandate.min_stable_reserve_pct:
         reasons.append(

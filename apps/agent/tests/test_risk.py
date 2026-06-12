@@ -2,13 +2,17 @@ from dataclasses import replace
 
 from guarded_alpha.config import load_config
 from guarded_alpha.fixtures import fixture_portfolio, fixture_snapshot
-from guarded_alpha.models import RiskStatus
+from guarded_alpha.models import DecisionAction, PortfolioState, RiskStatus, TradeDecision
 from guarded_alpha.risk import evaluate_risk
 from guarded_alpha.strategy import choose_trade
 
 
 def test_risk_approves_fixture_trade(tmp_path) -> None:
-    mandate = replace(load_config().mandate, kill_switch_path=str(tmp_path / "KILL_SWITCH"))
+    mandate = replace(
+        load_config().mandate,
+        kill_switch_path=str(tmp_path / "KILL_SWITCH"),
+        max_trade_pct=20.0,
+    )
     snapshot = fixture_snapshot()
     portfolio = fixture_portfolio()
     decision = choose_trade(snapshot, portfolio, mandate)
@@ -49,3 +53,26 @@ def test_risk_rejects_excessive_slippage(tmp_path) -> None:
     assert verdict.status == RiskStatus.REJECTED
     assert any("Slippage" in reason for reason in verdict.reasons)
 
+
+def test_risk_allows_sell_that_restores_stable_reserve(tmp_path) -> None:
+    mandate = replace(load_config().mandate, kill_switch_path=str(tmp_path / "KILL_SWITCH"))
+    snapshot = fixture_snapshot()
+    portfolio = PortfolioState(
+        total_value_usd=30.0,
+        stable_value_usd=8.0,
+        daily_pnl_pct=0.0,
+        drawdown_pct=0.0,
+        positions={"USDC": 8.0, "ETH": 12.0},
+    )
+    decision = TradeDecision(
+        action=DecisionAction.SELL,
+        symbol="ETH",
+        score=-0.1,
+        notional_usd=5.0,
+        reason="rebalance",
+        inputs={"from_symbol": "ETH", "to_symbol": "USDC"},
+    )
+
+    verdict = evaluate_risk(decision, snapshot, portfolio, mandate)
+
+    assert verdict.status == RiskStatus.APPROVED

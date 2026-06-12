@@ -27,12 +27,15 @@
 - Audit writes are append-only JSONL with `fsync`.
 - BNB Agent SDK integration is lazy and disabled until explicitly configured.
 
-## Live-Mode Requirements Before Competition
+## Live-Mode Requirements
 
 - Resolve every eligible symbol to a CMC ID and verified BSC contract address.
 - Replace fixture portfolio with TWAK wallet balance reconciliation.
 - Run quote-only TWAK swaps for the full token universe.
 - Execute one tiny BSC smoke trade and verify the tx hash on BscTrace.
-- Register agent wallet on-chain before June 22, 2026.
 - Run one scheduler instance only, with a process lock and kill switch monitored.
 - Provide `TWAK_WALLET_PASSWORD` through an operator secret store or TWAK keychain; do not commit it.
+
+## Exposure
+
+Do not expose wallet-control endpoints outside the local operator machine. The agent is designed for local TWAK signing and local audit logs.

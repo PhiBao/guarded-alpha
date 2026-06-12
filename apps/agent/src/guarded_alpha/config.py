@@ -35,8 +35,10 @@ class AppConfig:
     cmc_use_fixtures: bool
     portfolio_use_fixtures: bool
     competition_contract: str
+    trade_source_symbol: str
     min_daily_trade_usd: float
     qualification_trade_enabled: bool
+    strategy_weights: dict[str, float]
     mandate: AgentMandate
 
 
@@ -97,11 +99,37 @@ def load_config() -> AppConfig:
         cmc_use_fixtures=_bool_env("CMC_USE_FIXTURES", True),
         portfolio_use_fixtures=_bool_env("PORTFOLIO_USE_FIXTURES", True),
         competition_contract=os.getenv("COMPETITION_CONTRACT", COMPETITION_CONTRACT),
+        trade_source_symbol=os.getenv("TRADE_SOURCE_SYMBOL", "USDC").upper(),
         min_daily_trade_usd=_float_env("MIN_DAILY_TRADE_USD", 5.0),
         qualification_trade_enabled=_bool_env("QUALIFICATION_TRADE_ENABLED", True),
+        strategy_weights=_strategy_weights_env(),
         mandate=mandate,
     )
 
 
 def competition_eligible_symbols() -> set[str]:
     return set(ELIGIBLE_TOKENS)
+
+
+def _strategy_weights_env() -> dict[str, float]:
+    defaults = {
+        "momentum": 0.25,
+        "mean_reversion": 0.15,
+        "liquidity": 0.15,
+        "sentiment": 0.20,
+        "regime": 0.10,
+        "route": 0.10,
+        "rebalance": 0.05,
+    }
+    raw = os.getenv("STRATEGY_WEIGHTS")
+    if not raw:
+        return defaults
+    weights = dict(defaults)
+    for item in raw.split(","):
+        if ":" not in item:
+            continue
+        key, value = item.split(":", 1)
+        key = key.strip()
+        if key in weights:
+            weights[key] = float(value)
+    return weights

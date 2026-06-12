@@ -1,7 +1,7 @@
 [project]
 name = "guarded-alpha-agent"
 version = "0.1.0"
-description = "Security-first AI trading agent MVP for BNB Hack"
+description = "Self-custodial AI trading agent with guarded TWAK execution"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,6 +21,9 @@ bnb = [
 [project.scripts]
 guarded-alpha-api = "guarded_alpha.app:main"
 guarded-alpha-run-once = "guarded_alpha.runner:main"
+guarded-alpha-tick = "guarded_alpha.scheduler:tick_main"
+guarded-alpha-scheduler = "guarded_alpha.scheduler:scheduler_main"
+guarded-alpha-status = "guarded_alpha.register:status_main"
 guarded-alpha-competition-tick = "guarded_alpha.scheduler:tick_main"
 guarded-alpha-competition-scheduler = "guarded_alpha.scheduler:scheduler_main"
 guarded-alpha-competition-status = "guarded_alpha.register:status_main"

@@ -1,5 +1,6 @@
 export type RiskStatus = "approved" | "rejected";
 export type DecisionAction = "buy" | "sell" | "hold";
+export type VoteDirection = "long" | "short" | "neutral";
 
 export interface Mandate {
   eligible_symbols: string[];
@@ -21,6 +22,27 @@ export interface TradeDecision {
   notional_usd: number;
   reason: string;
   inputs: Record<string, unknown>;
+}
+
+export interface StrategyVote {
+  name: string;
+  direction: VoteDirection;
+  signal: number;
+  confidence: number;
+  weight: number;
+  reason: string;
+}
+
+export interface VibeScore {
+  symbol: string | null;
+  score: number;
+  confidence: number;
+  long_votes: number;
+  short_votes: number;
+  neutral_votes: number;
+  full_consensus: boolean;
+  votes: StrategyVote[];
+  breakdown: Record<string, number>;
 }
 
 export interface RiskVerdict {
@@ -67,15 +89,33 @@ export interface ExecutionReceipt {
   executed_at: string;
 }
 
+export interface RunCard {
+  title: string;
+  summary: string;
+  bsc_trace_url: string | null;
+  proof: Record<string, unknown>;
+  markdown: string;
+}
+
 export interface AgentRun {
   run_id: string;
   snapshot: MarketSnapshot;
   portfolio: PortfolioState;
   mandate: Mandate;
+  vibe_score: VibeScore;
   decision: TradeDecision;
   risk: RiskVerdict;
   receipt: ExecutionReceipt | null;
+  run_card: RunCard;
   created_at: string;
+}
+
+export interface DailyTradeStatus {
+  date: string;
+  required: boolean;
+  submitted: boolean;
+  submitted_count: number;
+  tx_hashes: string[];
 }
 
 export interface AgentStatus {
@@ -83,9 +123,11 @@ export interface AgentStatus {
     ok: boolean;
     live_trading_enabled: boolean;
     cmc_use_fixtures: boolean;
+    portfolio_use_fixtures: boolean;
   };
   mandate: Mandate;
   latest_run: AgentRun | null;
+  daily_status: DailyTradeStatus[];
   bnb_identity: {
     enabled: boolean;
     status: string;
@@ -105,4 +147,26 @@ export interface AgentStatus {
 export interface CompetitionStatus {
   local: AgentStatus["competition"];
   twak: Record<string, unknown>;
+}
+
+export interface ReadinessRequirement {
+  label: string;
+  ok: boolean;
+}
+
+export interface CompetitionReadiness {
+  registered: boolean;
+  participant?: string;
+  registration_status: Record<string, unknown>;
+  live_trading_enabled: boolean;
+  source_symbol: string;
+  eligible_symbols: string[];
+  in_scope_value_usd: number;
+  eligible_holdings: Record<string, number>;
+  portfolio_value_usd: number;
+  portfolio_error: string | null;
+  submitted_trade_count: number;
+  latest_submitted_run: AgentRun | null;
+  requirements: ReadinessRequirement[];
+  ready: boolean;
 }

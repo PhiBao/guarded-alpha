@@ -8,7 +8,7 @@ Find one eligible BSC asset per evaluation cycle that has positive short-term mo
 
 ## Inputs
 
-- Eligible token universe from the BNB Hack rules.
+- Configured eligible token universe.
 - CMC price, 24h change, 24h volume, 7d movement or volatility proxy.
 - CMC social/news/sentiment signal when available.
 - Optional Fear & Greed/regime context.
@@ -18,15 +18,18 @@ Find one eligible BSC asset per evaluation cycle that has positive short-term mo
 
 1. Resolve assets to stable CMC IDs before fetching data.
 2. Exclude stablecoins from candidate buys.
-3. Score each candidate:
-   - 45% normalized 24h momentum.
-   - 30% sentiment score.
-   - 25% volatility penalty.
-   - Liquidity bonus capped at high-volume assets.
-   - Small regime bonus when market context is neither panic nor extreme greed.
-4. Buy only if the best score clears the configured minimum.
-5. Size each trade at or below the mandate max trade percentage.
-6. If no signal clears the threshold, return HOLD.
+3. Score each candidate with BNB Vibe Score voters:
+   - momentum
+   - mean reversion
+   - liquidity
+   - CMC sentiment/news proxy
+   - regime
+   - route/slippage risk
+   - portfolio rebalance
+4. Normalize configured weights before aggregation.
+5. Buy only if the best score clears the configured minimum.
+6. Size each trade at or below the mandate max trade percentage.
+7. If no signal clears the threshold, return HOLD unless the scheduled qualification lane is explicitly active.
 
 ## Mandatory Risk Gate
 
@@ -51,7 +54,7 @@ Return a JSON-compatible strategy decision:
   "score": 0.41,
   "notional_usd": 100,
   "reason": "Best eligible asset cleared filters",
+  "votes": [{"name": "momentum", "direction": "long", "signal": 0.4}],
   "risk_checks": ["Risk gate approved inside mandate"]
 }
 ```
-

@@ -63,7 +63,11 @@ def run_preflight() -> list[CheckResult]:
     else:
         checks.append(CheckResult("cmc_api", False, "CMC_API_KEY is missing."))
 
-    adapter = TWAKExecutionAdapter(config.twak_bin, config.competition_contract)
+    adapter = TWAKExecutionAdapter(
+        config.twak_bin,
+        config.competition_contract,
+        source_symbol=config.trade_source_symbol,
+    )
     for name, fn in [
         ("twak_wallet_status", adapter.wallet_status),
         ("competition_status", adapter.competition_status),

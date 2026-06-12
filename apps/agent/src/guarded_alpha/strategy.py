@@ -1,27 +1,324 @@
 from __future__ import annotations
 
+import math
+
 from guarded_alpha.models import (
     AgentMandate,
     DecisionAction,
     MarketAsset,
     MarketSnapshot,
     PortfolioState,
+    StrategyVote,
     TradeDecision,
+    VibeScore,
+    VoteDirection,
 )
 
+DEFAULT_STRATEGY_WEIGHTS = {
+    "momentum": 0.25,
+    "mean_reversion": 0.15,
+    "liquidity": 0.15,
+    "sentiment": 0.20,
+    "regime": 0.10,
+    "route": 0.10,
+    "rebalance": 0.05,
+}
 
-def _score_asset(asset: MarketAsset, fear_greed: int | None) -> float:
-    momentum = max(min(asset.change_24h_pct / 10.0, 1.0), -1.0)
-    sentiment = max(min(asset.sentiment_score, 1.0), -1.0)
-    volatility_penalty = min(asset.volatility_7d_pct / 20.0, 1.0)
-    liquidity_bonus = min(asset.volume_24h_usd / 1_000_000_000, 1.0) * 0.15
-    regime = 0.05 if fear_greed is not None and 45 <= fear_greed <= 75 else -0.05
+
+def _clamp(value: float, low: float = -1.0, high: float = 1.0) -> float:
+    return max(min(value, high), low)
+
+
+def _direction(signal: float) -> VoteDirection:
+    if signal > 0.12:
+        return VoteDirection.LONG
+    if signal < -0.12:
+        return VoteDirection.SHORT
+    return VoteDirection.NEUTRAL
+
+
+def _normalize_weights(weights: dict[str, float]) -> dict[str, float]:
+    merged = dict(DEFAULT_STRATEGY_WEIGHTS)
+    merged.update({key: max(value, 0.0) for key, value in weights.items()})
+    total = sum(merged.values())
+    if total <= 0:
+        return DEFAULT_STRATEGY_WEIGHTS
+    return {key: value / total for key, value in merged.items()}
+
+
+def _asset_votes(
+    asset: MarketAsset,
+    portfolio: PortfolioState,
+    mandate: AgentMandate,
+    fear_greed: int | None,
+    weights: dict[str, float],
+) -> list[StrategyVote]:
+    stable_pct = (portfolio.stable_value_usd / portfolio.total_value_usd) * 100.0
+    momentum = _clamp(asset.change_24h_pct / 10.0)
+    mean_reversion = _clamp(-asset.change_24h_pct / 14.0)
+    liquidity = _clamp((asset.volume_24h_usd / 500_000_000) - 0.2, 0.0, 1.0)
+    sentiment = _clamp(asset.sentiment_score)
+    route = _clamp(1.0 - (asset.volatility_7d_pct / 25.0), -1.0, 1.0)
+    rebalance = 0.25 if stable_pct > mandate.min_stable_reserve_pct + 15 else -0.35
+
+    if fear_greed is None:
+        regime = 0.0
+    elif 35 <= fear_greed <= 75:
+        regime = 0.35
+    elif fear_greed > 85:
+        regime = -0.25
+    else:
+        regime = -0.1
+
+    raw = {
+        "momentum": (momentum, f"24h momentum is {asset.change_24h_pct:.2f}%."),
+        "mean_reversion": (mean_reversion, "Counter-trend vote from short-term move."),
+        "liquidity": (liquidity, f"24h volume is ${asset.volume_24h_usd:,.0f}."),
+        "sentiment": (sentiment, f"CMC sentiment proxy is {asset.sentiment_score:.2f}."),
+        "regime": (
+            regime,
+            f"Fear/greed regime is {fear_greed if fear_greed is not None else 'n/a'}.",
+        ),
+        "route": (route, f"Volatility route proxy is {asset.volatility_7d_pct:.2f}%."),
+        "rebalance": (rebalance, f"Stable reserve is {stable_pct:.2f}%."),
+    }
+    votes: list[StrategyVote] = []
+    for name, (signal, reason) in raw.items():
+        confidence = min(abs(signal) + 0.2, 1.0)
+        votes.append(
+            StrategyVote(
+                name=name,
+                direction=_direction(signal),
+                signal=round(signal, 4),
+                confidence=round(confidence, 4),
+                weight=round(weights.get(name, 0.0), 4),
+                reason=reason,
+            )
+        )
+    return votes
+
+
+def _weighted_score(votes: list[StrategyVote]) -> float:
+    return sum(vote.signal * vote.weight for vote in votes)
+
+
+def _floor_cents(value: float) -> float:
+    return math.floor(value * 100) / 100
+
+
+def _trade_notional(portfolio: PortfolioState, mandate: AgentMandate) -> float:
+    return _floor_cents(portfolio.total_value_usd * (mandate.max_trade_pct / 100.0))
+
+
+def _held_non_stable_positions(
+    portfolio: PortfolioState,
+    mandate: AgentMandate,
+) -> dict[str, float]:
+    return {
+        symbol.upper(): value
+        for symbol, value in portfolio.positions.items()
+        if symbol.upper() in mandate.eligible_symbols
+        and symbol.upper() not in mandate.stable_symbols
+        and value > 0
+    }
+
+
+def _sell_decision(
+    *,
+    symbol: str,
+    score: float,
+    notional_usd: float,
+    reason: str,
+    votes: list[StrategyVote],
+    inputs: dict,
+) -> tuple[TradeDecision, VibeScore]:
+    stable_symbols = inputs.get("stable_symbols", {"USDC"})
+    to_symbol = "USDC" if "USDC" in stable_symbols else next(iter(sorted(stable_symbols)), "USDC")
+    long_votes = sum(1 for vote in votes if vote.direction == VoteDirection.LONG)
+    short_votes = sum(1 for vote in votes if vote.direction == VoteDirection.SHORT)
+    neutral_votes = sum(1 for vote in votes if vote.direction == VoteDirection.NEUTRAL)
+    confidence = sum(vote.confidence * vote.weight for vote in votes)
+    vibe_score = VibeScore(
+        symbol=symbol,
+        score=round(score, 4),
+        confidence=round(confidence, 4),
+        long_votes=long_votes,
+        short_votes=short_votes,
+        neutral_votes=neutral_votes,
+        full_consensus=False,
+        votes=votes,
+        breakdown={vote.name: round(vote.signal * vote.weight, 4) for vote in votes},
+    )
     return (
-        (0.45 * momentum)
-        + (0.3 * sentiment)
-        - (0.25 * volatility_penalty)
-        + liquidity_bonus
-        + regime
+        TradeDecision(
+            action=DecisionAction.SELL,
+            symbol=symbol,
+            score=round(score, 4),
+            notional_usd=round(notional_usd, 2),
+            reason=reason,
+            inputs={
+                **inputs,
+                "from_symbol": symbol,
+                "to_symbol": to_symbol,
+            },
+        ),
+        vibe_score,
+    )
+
+
+def evaluate_strategy(
+    snapshot: MarketSnapshot,
+    portfolio: PortfolioState,
+    mandate: AgentMandate,
+    *,
+    strategy_weights: dict[str, float] | None = None,
+    force_qualification_trade: bool = False,
+    min_trade_usd: float = 5.0,
+) -> tuple[TradeDecision, VibeScore]:
+    weights = _normalize_weights(strategy_weights or DEFAULT_STRATEGY_WEIGHTS)
+    candidates: list[tuple[MarketAsset, list[StrategyVote], float]] = []
+    for asset in snapshot.assets:
+        symbol = asset.symbol.upper()
+        if symbol in mandate.stable_symbols or symbol not in mandate.eligible_symbols:
+            continue
+        votes = _asset_votes(asset, portfolio, mandate, snapshot.fear_greed, weights)
+        candidates.append((asset, votes, _weighted_score(votes)))
+
+    if not candidates:
+        vibe_score = VibeScore(None, 0.0, 0.0, 0, 0, 0, False, [], {})
+        return (
+            TradeDecision(
+                action=DecisionAction.HOLD,
+                symbol=None,
+                score=0.0,
+                notional_usd=0.0,
+                reason="No eligible non-stable assets were available.",
+            ),
+            vibe_score,
+        )
+
+    trade_notional = _trade_notional(portfolio, mandate)
+    held_positions = _held_non_stable_positions(portfolio, mandate)
+    stable_pct = (portfolio.stable_value_usd / portfolio.total_value_usd) * 100.0
+    min_sell_notional = min(trade_notional, min_trade_usd)
+    sell_candidates = [
+        (asset, votes, score, held_positions.get(asset.symbol.upper(), 0.0))
+        for asset, votes, score in candidates
+        if held_positions.get(asset.symbol.upper(), 0.0) >= min_sell_notional
+    ]
+
+    if sell_candidates and stable_pct < mandate.min_stable_reserve_pct + 8:
+        weakest_asset, weakest_votes, weakest_score, position_value = min(
+            sell_candidates, key=lambda item: item[2]
+        )
+        return _sell_decision(
+            symbol=weakest_asset.symbol,
+            score=weakest_score,
+            notional_usd=min(trade_notional, position_value, max(min_trade_usd, 1.0)),
+            reason="Stable reserve is low, recycling held risk asset back to USDC.",
+            votes=weakest_votes,
+            inputs={
+                "stable_pct": stable_pct,
+                "position_value_usd": position_value,
+                "stable_symbols": mandate.stable_symbols,
+            },
+        )
+
+    best_asset, votes, best_score = max(candidates, key=lambda item: item[2])
+    long_votes = sum(1 for vote in votes if vote.direction == VoteDirection.LONG)
+    short_votes = sum(1 for vote in votes if vote.direction == VoteDirection.SHORT)
+    neutral_votes = sum(1 for vote in votes if vote.direction == VoteDirection.NEUTRAL)
+    confidence = sum(vote.confidence * vote.weight for vote in votes)
+    vibe_score = VibeScore(
+        symbol=best_asset.symbol,
+        score=round(best_score, 4),
+        confidence=round(confidence, 4),
+        long_votes=long_votes,
+        short_votes=short_votes,
+        neutral_votes=neutral_votes,
+        full_consensus=short_votes == 0 and neutral_votes <= 1,
+        votes=votes,
+        breakdown={vote.name: round(vote.signal * vote.weight, 4) for vote in votes},
+    )
+
+    if best_score < mandate.min_signal_score and not force_qualification_trade:
+        if sell_candidates:
+            weakest_asset, weakest_votes, weakest_score, position_value = min(
+                sell_candidates, key=lambda item: item[2]
+            )
+            if weakest_score < 0:
+                return _sell_decision(
+                    symbol=weakest_asset.symbol,
+                    score=weakest_score,
+                    notional_usd=min(trade_notional, position_value, max(min_trade_usd, 1.0)),
+                    reason="Weakest held asset has negative BNB Vibe Score; reducing exposure.",
+                    votes=weakest_votes,
+                    inputs={
+                        "stable_pct": stable_pct,
+                        "position_value_usd": position_value,
+                        "stable_symbols": mandate.stable_symbols,
+                    },
+                )
+        return (
+            TradeDecision(
+                action=DecisionAction.HOLD,
+                symbol=best_asset.symbol,
+                score=round(best_score, 4),
+                notional_usd=0.0,
+                reason="BNB Vibe Score did not clear the minimum signal threshold.",
+                inputs={"best_symbol": best_asset.symbol},
+            ),
+            vibe_score,
+        )
+
+    notional_usd = trade_notional
+    reason = "BNB Vibe Score cleared strategy, liquidity, regime, and portfolio filters."
+    if force_qualification_trade and best_score < mandate.min_signal_score:
+        notional_usd = min(trade_notional, min_trade_usd)
+        reason = (
+            "Competition qualification trade selected below normal threshold, "
+            "still subject to risk gate."
+        )
+    stable_after_pct = (
+        (portfolio.stable_value_usd - notional_usd) / portfolio.total_value_usd
+    ) * 100
+    if force_qualification_trade and stable_after_pct < mandate.min_stable_reserve_pct:
+        if sell_candidates:
+            weakest_asset, weakest_votes, weakest_score, position_value = min(
+                sell_candidates, key=lambda item: item[2]
+            )
+            return _sell_decision(
+                symbol=weakest_asset.symbol,
+                score=weakest_score,
+                notional_usd=min(trade_notional, position_value, max(min_trade_usd, 1.0)),
+                reason="Qualification cycle recycled held asset to preserve USDC reserve.",
+                votes=weakest_votes,
+                inputs={
+                    "stable_pct": stable_pct,
+                    "position_value_usd": position_value,
+                    "stable_symbols": mandate.stable_symbols,
+                },
+            )
+
+    return (
+        TradeDecision(
+            action=DecisionAction.BUY,
+            symbol=best_asset.symbol,
+            score=round(best_score, 4),
+            notional_usd=round(notional_usd, 2),
+            reason=reason,
+            inputs={
+                "change_24h_pct": best_asset.change_24h_pct,
+                "sentiment_score": best_asset.sentiment_score,
+                "volatility_7d_pct": best_asset.volatility_7d_pct,
+                "volume_24h_usd": best_asset.volume_24h_usd,
+                "fear_greed": snapshot.fear_greed,
+                "long_votes": long_votes,
+                "short_votes": short_votes,
+                "neutral_votes": neutral_votes,
+            },
+        ),
+        vibe_score,
     )
 
 
@@ -33,55 +330,11 @@ def choose_trade(
     force_qualification_trade: bool = False,
     min_trade_usd: float = 5.0,
 ) -> TradeDecision:
-    candidates: list[tuple[MarketAsset, float]] = []
-    for asset in snapshot.assets:
-        symbol = asset.symbol.upper()
-        if symbol in mandate.stable_symbols or symbol not in mandate.eligible_symbols:
-            continue
-        candidates.append((asset, _score_asset(asset, snapshot.fear_greed)))
-
-    if not candidates:
-        return TradeDecision(
-            action=DecisionAction.HOLD,
-            symbol=None,
-            score=0.0,
-            notional_usd=0.0,
-            reason="No eligible non-stable assets were available.",
-        )
-
-    best_asset, best_score = max(candidates, key=lambda item: item[1])
-    trade_notional = round(portfolio.total_value_usd * (mandate.max_trade_pct / 100.0), 2)
-
-    if best_score < mandate.min_signal_score and not force_qualification_trade:
-        return TradeDecision(
-            action=DecisionAction.HOLD,
-            symbol=best_asset.symbol,
-            score=round(best_score, 4),
-            notional_usd=0.0,
-            reason="Best signal did not clear the minimum score.",
-            inputs={"best_symbol": best_asset.symbol},
-        )
-
-    notional_usd = trade_notional
-    reason = "Best eligible asset cleared momentum, sentiment, volatility, and liquidity filters."
-    if force_qualification_trade and best_score < mandate.min_signal_score:
-        notional_usd = min(trade_notional, min_trade_usd)
-        reason = (
-            "Competition qualification trade: best eligible asset selected below normal "
-            "signal threshold, still subject to risk gate."
-        )
-
-    return TradeDecision(
-        action=DecisionAction.BUY,
-        symbol=best_asset.symbol,
-        score=round(best_score, 4),
-        notional_usd=round(notional_usd, 2),
-        reason=reason,
-        inputs={
-            "change_24h_pct": best_asset.change_24h_pct,
-            "sentiment_score": best_asset.sentiment_score,
-            "volatility_7d_pct": best_asset.volatility_7d_pct,
-            "volume_24h_usd": best_asset.volume_24h_usd,
-            "fear_greed": snapshot.fear_greed,
-        },
+    decision, _ = evaluate_strategy(
+        snapshot,
+        portfolio,
+        mandate,
+        force_qualification_trade=force_qualification_trade,
+        min_trade_usd=min_trade_usd,
     )
+    return decision

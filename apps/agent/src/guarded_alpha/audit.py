@@ -41,3 +41,16 @@ class AuditLog:
                 continue
             return True
         return False
+
+    def has_run_on(self, target_date: date) -> bool:
+        for row in self.read_recent(limit=500):
+            created_at = str(row.get("created_at", ""))
+            if created_at.startswith(target_date.isoformat()):
+                return True
+        return False
+
+    def find_run(self, run_id: str) -> dict[str, Any] | None:
+        for row in reversed(self.read_recent(limit=1000)):
+            if row.get("run_id") == run_id:
+                return row
+        return None
