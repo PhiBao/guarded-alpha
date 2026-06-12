@@ -1,11 +1,14 @@
 import {
   Activity,
   AlertTriangle,
+  Bot,
   CheckCircle2,
   ClipboardList,
+  Github,
   Play,
   RefreshCcw,
   Shield,
+  Video,
   Wallet
 } from "lucide-react";
 import type React from "react";
@@ -22,6 +25,10 @@ import {
 import type { AgentRun, AgentStatus, CompetitionReadiness, StrategyVote } from "./types";
 
 type Tab = "mission" | "signals" | "risk" | "proof";
+
+const IS_LANDING_ONLY = import.meta.env.VITE_LANDING_ONLY === "true";
+const REPO_URL = import.meta.env.VITE_REPO_URL ?? "https://github.com/PhiBao/guarded-alpha";
+const DEMO_URL = import.meta.env.VITE_DEMO_URL ?? "";
 
 function formatUsd(value: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
@@ -98,7 +105,108 @@ function TradeHistory({ runs }: { runs: AgentRun[] }) {
   );
 }
 
+function LandingPage() {
+  const voters = [
+    "momentum",
+    "mean reversion",
+    "liquidity",
+    "sentiment",
+    "regime",
+    "route risk",
+    "rebalance"
+  ];
+
+  return (
+    <main className="landingShell">
+      <section className="landingHero">
+        <div className="landingCopy">
+          <p className="eyebrow">Self-Custody AI Trading Agent</p>
+          <h1>Guarded Alpha Terminal</h1>
+          <p>
+            A local-first trading agent that turns CMC market data into bounded TWAK execution on
+            BSC, with deterministic risk controls, buy/sell rebalancing, and proof logs.
+          </p>
+          <div className="landingActions">
+            <a className="primaryButton" href={REPO_URL} target="_blank" rel="noreferrer">
+              <Github size={18} />
+              Build Yours
+            </a>
+            {DEMO_URL ? (
+              <a className="iconButton" href={DEMO_URL} target="_blank" rel="noreferrer">
+                <Video size={18} />
+                Watch Demo
+              </a>
+            ) : null}
+          </div>
+        </div>
+        <div className="landingTerminal" aria-label="Guarded Alpha flow">
+          <div>
+            <span>signal</span>
+            <strong>BNB Vibe Score</strong>
+          </div>
+          <div>
+            <span>risk</span>
+            <strong>Drawdown · reserve · slippage</strong>
+          </div>
+          <div>
+            <span>execution</span>
+            <strong>TWAK local signing</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="vibeSection">
+        <div>
+          <p className="eyebrow">Swarm Logic</p>
+          <h2>BNB Vibe Score</h2>
+          <p>
+            Guarded Alpha does not let one prompt decide trades. A small swarm of deterministic
+            voters scores each token from different angles, then combines the weighted votes into a
+            single action signal.
+          </p>
+        </div>
+        <div className="voterGrid">
+          {voters.map((voter) => (
+            <span key={voter}>{voter}</span>
+          ))}
+        </div>
+        <div className="vibeFlow">
+          <strong>market data</strong>
+          <span>{"->"}</span>
+          <strong>voter swarm</strong>
+          <span>{"->"}</span>
+          <strong>risk gate</strong>
+          <span>{"->"}</span>
+          <strong>TWAK swap</strong>
+        </div>
+      </section>
+
+      <section className="landingGrid">
+        <article>
+          <Bot size={22} />
+          <h2>Agentic, not black-box</h2>
+          <p>Seven deterministic voters produce every trade decision before execution.</p>
+        </article>
+        <article>
+          <Shield size={22} />
+          <h2>Guarded autonomy</h2>
+          <p>Risk gates reject stale data, oversized trades, low reserves, and kill-switch events.</p>
+        </article>
+        <article>
+          <Wallet size={22} />
+          <h2>Self-custody first</h2>
+          <p>Wallet creation, password handling, and signing authority stay on the operator machine.</p>
+        </article>
+      </section>
+    </main>
+  );
+}
+
 function App() {
+  if (IS_LANDING_ONLY) {
+    return <LandingPage />;
+  }
+
   const [tab, setTab] = useState<Tab>("mission");
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [latestRun, setLatestRun] = useState<AgentRun | null>(null);

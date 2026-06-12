@@ -138,6 +138,19 @@ Open `http://127.0.0.1:5173`.
 - **Risk Governor**: active mandate and latest risk checks
 - **Proof Ledger**: run card, portfolio state, quote, receipt, and transaction proof when available
 
+## Static Landing Page
+
+The frontend can build a static landing page for GitHub Pages. It does not call the local API.
+
+```bash
+VITE_LANDING_ONLY=true \
+VITE_REPO_URL=https://github.com/PhiBao/guarded-alpha \
+VITE_DEMO_URL=https://example.com/demo \
+pnpm -C apps/web build
+```
+
+GitHub Actions handles deployment through `.github/workflows/pages.yml`, so `apps/web/dist` should stay uncommitted. In the repository settings, set Pages source to **GitHub Actions**. Optionally set repository variable `VITE_DEMO_URL` to show the **Watch Demo** button.
+
 ## Trading Commands
 
 Manual live cycle:
