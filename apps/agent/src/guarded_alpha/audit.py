@@ -34,13 +34,17 @@ class AuditLog:
         return rows[-limit:]
 
     def has_submitted_trade_on(self, target_date: date) -> bool:
+        return self.submitted_trade_count_on(target_date) > 0
+
+    def submitted_trade_count_on(self, target_date: date) -> int:
+        count = 0
         for row in self.read_recent(limit=500):
             receipt = row.get("receipt") or {}
             created_at = str(row.get("created_at", ""))
             if not receipt.get("submitted") or not created_at.startswith(target_date.isoformat()):
                 continue
-            return True
-        return False
+            count += 1
+        return count
 
     def has_run_on(self, target_date: date) -> bool:
         for row in self.read_recent(limit=500):

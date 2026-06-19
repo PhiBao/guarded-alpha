@@ -58,6 +58,8 @@ def run_once(
     config: AppConfig | None = None,
     *,
     force_qualification_trade: bool = False,
+    min_score_override: float | None = None,
+    min_confidence: float | None = None,
 ) -> AgentRun:
     resolved = config or load_config()
     audit = AuditLog(resolved.audit_path)
@@ -70,9 +72,18 @@ def run_once(
         strategy_weights=resolved.strategy_weights,
         force_qualification_trade=force_qualification_trade,
         min_trade_usd=resolved.min_daily_trade_usd,
+        min_score_override=min_score_override,
+        min_confidence=min_confidence,
     )
     risk = evaluate_risk(decision, snapshot, portfolio, resolved.mandate)
-    receipt = build_execution_adapter(resolved).execute(decision, risk)
+    execution_adapter = build_execution_adapter(resolved)
+    receipt = execution_adapter.execute(decision, risk)
+    portfolio_after = None
+    if receipt.submitted and resolved.live_trading_enabled:
+        try:
+            portfolio_after = build_portfolio_provider(resolved).portfolio()
+        except Exception:
+            portfolio_after = None
     run_id = str(uuid.uuid4())
     run_card = build_run_card(
         run_id=run_id,
@@ -81,6 +92,9 @@ def run_once(
         risk=risk,
         receipt=receipt,
         mandate=resolved.mandate,
+        snapshot=snapshot,
+        portfolio_before=portfolio,
+        portfolio_after=portfolio_after,
     )
 
     run = AgentRun(
@@ -104,11 +118,20 @@ def run_scheduled_tick(config: AppConfig | None = None) -> AgentRun | None:
     audit = AuditLog(resolved.audit_path)
     today = now_utc().date()
     if resolved.live_trading_enabled:
-        already_ran = audit.has_submitted_trade_on(today)
+        submitted_count = audit.submitted_trade_count_on(today)
+        if submitted_count >= resolved.max_daily_trades:
+            return None
+        if submitted_count > 0:
+            return run_once(
+                resolved,
+                force_qualification_trade=False,
+                min_score_override=resolved.high_confidence_min_score,
+                min_confidence=resolved.high_confidence_min_confidence,
+            )
     else:
         already_ran = audit.has_run_on(today)
-    if already_ran:
-        return None
+        if already_ran:
+            return None
     return run_once(
         resolved,
         force_qualification_trade=resolved.qualification_trade_enabled,

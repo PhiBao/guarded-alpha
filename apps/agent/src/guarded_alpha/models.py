@@ -48,6 +48,8 @@ class MarketSnapshot:
     assets: list[MarketAsset]
     fear_greed: int | None
     captured_at: datetime
+    trend_signals: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

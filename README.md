@@ -7,11 +7,11 @@ Guarded Alpha turns market data into bounded on-chain execution. It reads CMC ma
 ## What It Does
 
 - reads market data from CoinMarketCap
-- scores opportunities with the BNB Vibe Score strategy engine
+- scores opportunities with the BNB Vibe Score strategy engine and an explicit Scout / Quant / Risk / Executor / Reviewer pipeline
 - buys or sells through TWAK on BSC
 - recycles held assets back into USDC when reserves get low
 - blocks unsafe actions with a hard risk mandate
-- records every run in an append-only proof ledger
+- records every run in an append-only proof ledger with market provenance, quote, receipt, risk checks, and explorer links when available
 - exposes a local React operator console for portfolio, PnL, readiness, signals, risk, and run cards
 - runs an hourly scheduler with a single-instance lock
 
@@ -40,6 +40,14 @@ The agent evaluates a constrained in-scope universe using seven voters:
 Votes are weighted, normalized, and converted into a BNB Vibe Score. A trade executes only after the risk governor approves it.
 
 The agent is not a one-way buyer. If USDC reserve gets too low, or a held risk asset becomes the weakest scored position, the strategy can sell that asset back to USDC. This keeps a small wallet operational instead of exhausting source balance.
+
+Each decision is also annotated by a small agent pipeline:
+
+- **Scout** finds CMC candidates and current market regime.
+- **Quant** scores momentum, mean reversion, liquidity, sentiment, regime, route risk, and reserve fit.
+- **Risk** checks bankroll preservation before upside.
+- **Executor** submits only TWAK swaps that passed the deterministic mandate.
+- **Reviewer** writes the proof card for replay and post-trade review.
 
 ## Risk Governor
 
@@ -84,6 +92,7 @@ Audit ledger + run card + operator console
 - `docs/DEPLOYMENT.md`: runtime guide
 - `docs/RUNBOOK.md`: operator runbook
 - `docs/THREAT_MODEL.md`: security and attack surface notes
+- `HACKATHON_SUBMISSION.md`: judge-facing Track 1 fit and demo path
 
 ## Setup
 
@@ -136,22 +145,7 @@ Open `http://127.0.0.1:5173`.
 - **Mission Control**: wallet, registration status, readiness, portfolio value, submitted trades
 - **Signals**: BNB Vibe Score and strategy voters
 - **Risk Governor**: active mandate and latest risk checks
-- **Proof Ledger**: run card, portfolio state, quote, receipt, and transaction proof when available
-
-## Static Landing Page
-
-The frontend can build a static landing page for GitHub Pages. It does not call the local API.
-
-```bash
-VITE_LANDING_ONLY=true \
-VITE_REPO_URL=https://github.com/PhiBao/guarded-alpha \
-VITE_DEMO_URL=https://example.com/demo \
-pnpm -C apps/web build
-```
-
-GitHub Actions handles deployment through `.github/workflows/pages.yml`, so `apps/web/dist` should stay uncommitted.
-
-Before the first deploy, open repository **Settings -> Pages** and set **Build and deployment -> Source** to **GitHub Actions**. If Pages is not enabled there, `actions/deploy-pages` returns `404 Not Found` even when the artifact upload succeeds. Optionally set repository variable `VITE_DEMO_URL` to show the **Watch Demo** button.
+- **Proof Ledger**: run card, CMC provenance, portfolio state, quote, receipt, and transaction proof when available
 
 ## Trading Commands
 
@@ -167,7 +161,9 @@ Hourly scheduler:
 uv run guarded-alpha-scheduler
 ```
 
-The scheduler wakes hourly, checks whether a submitted trade already exists for the current UTC date, and runs one cycle if needed. A process lock prevents duplicate schedulers.
+The scheduler wakes hourly. Its first priority is at least one submitted live trade per UTC day when the risk governor allows it. After that, it can submit at most `MAX_DAILY_TRADES` live trades for the day, and extra trades must clear the stricter `HIGH_CONFIDENCE_MIN_SCORE` and `HIGH_CONFIDENCE_MIN_CONFIDENCE` gates.
+
+The default policy is intentionally selective: `MAX_DAILY_TRADES=2`, `HIGH_CONFIDENCE_MIN_SCORE=0.45`, and `HIGH_CONFIDENCE_MIN_CONFIDENCE=0.55`. This gives the agent room to act on unusually strong signals without forcing churn from a small wallet. A process lock prevents duplicate schedulers.
 
 ## Runtime
 

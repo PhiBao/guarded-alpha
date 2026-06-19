@@ -221,6 +221,11 @@ h2 {
   line-height: 1.45;
 }
 
+.compactSubtitle {
+  max-width: 620px;
+  font-size: 0.94rem;
+}
+
 .actions {
   display: flex;
   gap: 10px;
@@ -430,6 +435,82 @@ h2 {
   margin-top: 14px;
   color: #59635a;
   font-size: 0.9rem;
+}
+
+.thesisPanel {
+  min-height: 100%;
+}
+
+.thesisBody {
+  display: grid;
+  gap: 12px;
+}
+
+.thesisBody p {
+  color: #59635a;
+  line-height: 1.5;
+}
+
+.stackGrid,
+.agentPipeline {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.stackGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stackGrid div,
+.agentPipeline div {
+  border: 1px solid #e1e7df;
+  border-radius: 7px;
+  background: #f7f9f6;
+}
+
+.stackGrid div {
+  padding: 12px;
+}
+
+.stackGrid span,
+.agentPipeline span {
+  display: block;
+  color: #667066;
+  font-size: 0.78rem;
+}
+
+.stackGrid strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.agentPipeline div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 4px;
+  padding: 10px 12px;
+}
+
+.agentPipeline svg {
+  grid-row: span 3;
+  margin-top: 2px;
+  color: #227a5a;
+}
+
+.agentPipeline strong,
+.agentPipeline span,
+.agentPipeline p {
+  min-width: 0;
+}
+
+.agentPipeline p {
+  color: #354052;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .requirementsList {
@@ -737,6 +818,7 @@ th {
 
   .statusGrid,
   .competitionActions,
+  .stackGrid,
   .pnlGrid,
   .historyRow,
   .landingHero,

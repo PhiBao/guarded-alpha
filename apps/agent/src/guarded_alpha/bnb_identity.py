@@ -23,7 +23,11 @@ class BNBIdentityAdapter:
 
     def status(self) -> dict[str, Any]:
         if not self.enabled:
-            return {"enabled": False, "status": "disabled"}
+            return {
+                "enabled": False,
+                "status": "disabled",
+                "role": "optional BNB Agent SDK identity proof",
+            }
         try:
             import bnbagent  # type: ignore[import-not-found]
         except ImportError:
@@ -31,10 +35,12 @@ class BNBIdentityAdapter:
                 "enabled": True,
                 "status": "missing_dependency",
                 "next_step": "Run `uv sync --extra bnb` and configure wallet env vars.",
+                "role": "optional BNB Agent SDK identity proof",
             }
         return {
             "enabled": True,
             "status": "available",
             "network": self.network,
             "package": getattr(bnbagent, "__name__", "bnbagent"),
+            "role": "optional BNB Agent SDK identity proof",
         }

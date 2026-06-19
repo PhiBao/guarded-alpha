@@ -38,6 +38,9 @@ class AppConfig:
     trade_source_symbol: str
     min_daily_trade_usd: float
     qualification_trade_enabled: bool
+    max_daily_trades: int
+    high_confidence_min_score: float
+    high_confidence_min_confidence: float
     strategy_weights: dict[str, float]
     mandate: AgentMandate
 
@@ -102,6 +105,9 @@ def load_config() -> AppConfig:
         trade_source_symbol=os.getenv("TRADE_SOURCE_SYMBOL", "USDC").upper(),
         min_daily_trade_usd=_float_env("MIN_DAILY_TRADE_USD", 5.0),
         qualification_trade_enabled=_bool_env("QUALIFICATION_TRADE_ENABLED", True),
+        max_daily_trades=max(_int_env("MAX_DAILY_TRADES", 2), 1),
+        high_confidence_min_score=_float_env("HIGH_CONFIDENCE_MIN_SCORE", 0.45),
+        high_confidence_min_confidence=_float_env("HIGH_CONFIDENCE_MIN_CONFIDENCE", 0.55),
         strategy_weights=_strategy_weights_env(),
         mandate=mandate,
     )

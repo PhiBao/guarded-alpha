@@ -40,6 +40,12 @@ class CMCCommandProvider:
             assets=assets,
             fear_greed=None,
             captured_at=datetime.now(UTC),
+            trend_signals=_trend_from_assets(assets),
+            provenance={
+                "quotes": "cmc-cli price",
+                "fear_greed": "unavailable",
+                "trend_signals": "derived from returned quotes",
+            },
         )
 
     def _run(self, args: list[str]) -> dict:
@@ -87,30 +93,43 @@ class CMCCommandProvider:
 class CMCAPIProvider:
     api_key: str
     timeout_seconds: int = 20
-    base_url: str = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+    base_url: str = "https://pro-api.coinmarketcap.com"
 
     def snapshot(self, symbols: set[str]) -> MarketSnapshot:
         if not symbols:
             raise ValueError("symbols must not be empty")
-        payload = self._fetch(symbols)
+        payload = self._fetch_quotes(symbols)
         captured_at = datetime.now(UTC)
         assets = self._parse_assets(payload, captured_at)
+        fear_greed = self._fetch_fear_greed()
+        trend_signals = self._fetch_trend_signals(symbols, assets)
         return MarketSnapshot(
             source="cmc-api",
             assets=assets,
-            fear_greed=None,
+            fear_greed=fear_greed,
             captured_at=captured_at,
+            trend_signals=trend_signals,
+            provenance={
+                "quotes": "/v1/cryptocurrency/quotes/latest",
+                "fear_greed": (
+                    "/v3/fear-and-greed/latest" if fear_greed is not None else "unavailable"
+                ),
+                "trend_signals": trend_signals.get("source", "derived from quotes"),
+            },
         )
 
-    def _fetch(self, symbols: set[str]) -> dict:
+    def _fetch_quotes(self, symbols: set[str]) -> dict:
         params = urllib.parse.urlencode(
             {
                 "symbol": ",".join(sorted(symbols)),
                 "convert": "USD",
             }
         )
+        return self._fetch_path(f"/v1/cryptocurrency/quotes/latest?{params}")
+
+    def _fetch_path(self, path: str) -> dict:
         request = urllib.request.Request(
-            f"{self.base_url}?{params}",
+            f"{self.base_url}{path}",
             headers={
                 "Accept": "application/json",
                 "X-CMC_PRO_API_KEY": self.api_key,
@@ -118,6 +137,12 @@ class CMCAPIProvider:
         )
         with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def _fetch_optional_path(self, path: str) -> dict | None:
+        try:
+            return self._fetch_path(path)
+        except Exception:
+            return None
 
     def _parse_assets(self, payload: dict, captured_at: datetime) -> list[MarketAsset]:
         status = payload.get("status") or {}
@@ -147,3 +172,80 @@ class CMCAPIProvider:
                 )
             )
         return assets
+
+    def _fetch_fear_greed(self) -> int | None:
+        payload = self._fetch_optional_path("/v3/fear-and-greed/latest")
+        if not payload:
+            return None
+        data = payload.get("data") or {}
+        value = data.get("value")
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _fetch_trend_signals(self, symbols: set[str], assets: list[MarketAsset]) -> dict:
+        listings = self._fetch_optional_path(
+            "/v1/cryptocurrency/listings/latest?limit=80&convert=USD&sort=percent_change_24h"
+        )
+        if listings and isinstance(listings.get("data"), list):
+            rows = listings["data"]
+            gainers: list[str] = []
+            losers: list[str] = []
+            symbol_set = {symbol.upper() for symbol in symbols}
+            for row in rows:
+                symbol = str(row.get("symbol") or "").upper()
+                if not symbol or symbol not in symbol_set:
+                    continue
+                quote = (row.get("quote") or {}).get("USD") or {}
+                change = float(quote.get("percent_change_24h") or 0.0)
+                if change >= 0:
+                    gainers.append(symbol)
+                else:
+                    losers.append(symbol)
+            return {
+                "source": "/v1/cryptocurrency/listings/latest",
+                "top_gainers": gainers[:5],
+                "top_losers": losers[:5],
+                "market_regime": _market_regime_from_assets(assets),
+                "risk_notes": _risk_notes_from_assets(assets),
+            }
+        return _trend_from_assets(assets)
+
+
+def _market_regime_from_assets(assets: list[MarketAsset]) -> str:
+    non_stables = [
+        asset
+        for asset in assets
+        if asset.symbol.upper() not in {"USDT", "USDC", "FDUSD", "DAI", "USD1", "USDE"}
+    ]
+    if not non_stables:
+        return "unknown"
+    avg_change = sum(asset.change_24h_pct for asset in non_stables) / len(non_stables)
+    avg_volatility = sum(asset.volatility_7d_pct for asset in non_stables) / len(non_stables)
+    if avg_change > 2.0 and avg_volatility < 12:
+        return "risk-on"
+    if avg_change < -2.0 or avg_volatility > 18:
+        return "defensive"
+    return "selective"
+
+
+def _risk_notes_from_assets(assets: list[MarketAsset]) -> list[str]:
+    notes: list[str] = []
+    for asset in assets:
+        if asset.volatility_7d_pct > 18:
+            notes.append(f"{asset.symbol} high 7d volatility")
+        if asset.volume_24h_usd < 5_000_000 and asset.symbol.upper() not in {"USDT", "USDC"}:
+            notes.append(f"{asset.symbol} thin 24h liquidity")
+    return notes[:5]
+
+
+def _trend_from_assets(assets: list[MarketAsset]) -> dict:
+    ranked = sorted(assets, key=lambda asset: asset.change_24h_pct, reverse=True)
+    return {
+        "source": "derived from quotes",
+        "top_gainers": [asset.symbol for asset in ranked[:5] if asset.change_24h_pct >= 0],
+        "top_losers": [asset.symbol for asset in ranked[-5:] if asset.change_24h_pct < 0],
+        "market_regime": _market_regime_from_assets(assets),
+        "risk_notes": _risk_notes_from_assets(assets),
+    }

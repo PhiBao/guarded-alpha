@@ -19,6 +19,7 @@ from guarded_alpha.models import (
 
 SAFE_SYMBOL = re.compile(r"^[A-Z0-9]{2,16}$")
 SAFE_ADDRESS = re.compile(r"^0x[a-fA-F0-9]{40}$")
+SAFE_TX_HASH = re.compile(r"^0x[a-fA-F0-9]{64}$")
 
 
 class ExecutionAdapter(Protocol):
@@ -85,13 +86,18 @@ class TWAKExecutionAdapter:
             "--json",
         ]
         result = self._run_json(swap_command)
+        tx_hash = _find_tx_hash(result)
         return ExecutionReceipt(
             mode=ExecutionMode.LIVE,
             submitted=True,
-            tx_hash=result.get("txHash") or result.get("tx_hash"),
+            tx_hash=tx_hash,
             command=[*self._base_command(), *swap_command],
             quote=quote,
-            message="Submitted through TWAK.",
+            message=(
+                "Submitted through TWAK."
+                if tx_hash
+                else "Submitted through TWAK; tx hash was not present in CLI output."
+            ),
             executed_at=now_utc(),
         )
 
@@ -183,3 +189,24 @@ class TWAKExecutionAdapter:
         if self.twak_bin == "twak" and shutil.which("twak") is None:
             return ["pnpm", "exec", "twak"]
         return [self.twak_bin]
+
+
+def _find_tx_hash(value: Any) -> str | None:
+    if isinstance(value, str):
+        match = SAFE_TX_HASH.search(value)
+        return match.group(0) if match else None
+    if isinstance(value, dict):
+        for key in ["txHash", "tx_hash", "transactionHash", "transaction_hash", "hash"]:
+            candidate = value.get(key)
+            if isinstance(candidate, str) and SAFE_TX_HASH.match(candidate):
+                return candidate
+        for item in value.values():
+            found = _find_tx_hash(item)
+            if found:
+                return found
+    if isinstance(value, list):
+        for item in value:
+            found = _find_tx_hash(item)
+            if found:
+                return found
+    return None

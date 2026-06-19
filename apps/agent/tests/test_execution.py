@@ -1,5 +1,5 @@
 import pytest
-from guarded_alpha.execution import TWAKExecutionAdapter
+from guarded_alpha.execution import TWAKExecutionAdapter, _find_tx_hash
 from guarded_alpha.models import DecisionAction, TradeDecision
 
 
@@ -48,3 +48,10 @@ def test_twak_adapter_routes_sell_to_source_symbol() -> None:
     )
 
     assert adapter._route(decision) == ("ETH", "USDC")
+
+
+def test_twak_adapter_finds_nested_tx_hash() -> None:
+    tx_hash = "0x" + "a" * 64
+    payload = {"data": {"receipt": {"transactionHash": tx_hash}}}
+
+    assert _find_tx_hash(payload) == tx_hash

@@ -13,7 +13,22 @@ def fixture_snapshot() -> MarketSnapshot:
         MarketAsset("PENDLE", 9481, "bsc", None, 4.6, 3.3, 170_000_000, 8.4, 0.51, captured_at),
         MarketAsset("USDT", 825, "bsc", None, 1.0, 0.0, 77_000_000_000, 0.1, 0.0, captured_at),
     ]
-    return MarketSnapshot(source="fixture", assets=assets, fear_greed=62, captured_at=captured_at)
+    return MarketSnapshot(
+        source="fixture",
+        assets=assets,
+        fear_greed=62,
+        captured_at=captured_at,
+        trend_signals={
+            "market_regime": "constructive",
+            "top_gainers": ["CAKE", "PENDLE", "ETH"],
+            "risk_notes": ["fixture data", "stable reserve healthy"],
+        },
+        provenance={
+            "quotes": "fixture",
+            "fear_greed": "fixture",
+            "trend_signals": "fixture",
+        },
+    )
 
 
 def fixture_portfolio() -> PortfolioState:
@@ -24,4 +39,3 @@ def fixture_portfolio() -> PortfolioState:
         drawdown_pct=3.2,
         positions={"USDT": 650.0, "ETH": 180.0, "CAKE": 90.0, "TWT": 80.0},
     )
-

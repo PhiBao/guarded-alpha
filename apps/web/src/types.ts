@@ -77,6 +77,8 @@ export interface MarketSnapshot {
   assets: MarketAsset[];
   fear_greed: number | null;
   captured_at: string;
+  trend_signals: Record<string, unknown>;
+  provenance: Record<string, unknown>;
 }
 
 export interface ExecutionReceipt {
@@ -131,6 +133,7 @@ export interface AgentStatus {
   bnb_identity: {
     enabled: boolean;
     status: string;
+    role?: string;
     next_step?: string;
     network?: string;
   };
@@ -158,6 +161,9 @@ export interface CompetitionReadiness {
   registered: boolean;
   participant?: string;
   registration_status: Record<string, unknown>;
+  bnb_identity: AgentStatus["bnb_identity"];
+  official_timeline: AgentStatus["competition"];
+  twak_deadline?: string;
   live_trading_enabled: boolean;
   source_symbol: string;
   eligible_symbols: string[];

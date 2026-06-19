@@ -5,10 +5,11 @@ import {
   CheckCircle2,
   ClipboardList,
   Github,
+  LineChart,
   Play,
   RefreshCcw,
   Shield,
-  Video,
+  Target,
   Wallet
 } from "lucide-react";
 import type React from "react";
@@ -28,7 +29,6 @@ type Tab = "mission" | "signals" | "risk" | "proof";
 
 const IS_LANDING_ONLY = import.meta.env.VITE_LANDING_ONLY === "true";
 const REPO_URL = import.meta.env.VITE_REPO_URL ?? "https://github.com/PhiBao/guarded-alpha";
-const DEMO_URL = import.meta.env.VITE_DEMO_URL ?? "";
 
 function formatUsd(value: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
@@ -41,6 +41,25 @@ function formatPct(value: number): string {
 function shortAddress(value?: string): string {
   if (!value) return "Not resolved";
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function asString(value: unknown, fallback = "n/a"): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return fallback;
+}
+
+function agentPipeline(run: AgentRun | null): Array<Record<string, string>> {
+  const raw = run?.decision.inputs.agent_pipeline;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      agent: asString(item.agent, "Agent"),
+      role: asString(item.role, "Decision role"),
+      output: asString(item.output, "")
+    }));
 }
 
 function StatusPill({ label, tone }: { label: string; tone: "ok" | "warn" | "danger" | "idle" }) {
@@ -131,12 +150,6 @@ function LandingPage() {
               <Github size={18} />
               Build Yours
             </a>
-            {DEMO_URL ? (
-              <a className="iconButton" href={DEMO_URL} target="_blank" rel="noreferrer">
-                <Video size={18} />
-                Watch Demo
-              </a>
-            ) : null}
           </div>
         </div>
         <div className="landingTerminal" aria-label="Guarded Alpha flow">
@@ -299,6 +312,12 @@ function App() {
   const portfolioMode = status?.health.portfolio_use_fixtures ? "Fixture" : "TWAK";
   const registered = Boolean(readiness?.registered);
   const dailyPnl = latestRun?.portfolio.daily_pnl_pct ?? 0;
+  const pipeline = agentPipeline(latestRun);
+  const marketRegime = asString(latestRun?.snapshot.trend_signals?.market_regime, "unknown");
+  const twakDeadline = readiness?.twak_deadline
+    ? new Date(readiness.twak_deadline).toLocaleString()
+    : "not reported";
+  const nextRequiredDay = status?.daily_status.find((day) => !day.submitted);
 
   return (
     <main className="shell">
@@ -332,8 +351,8 @@ function App() {
         <Metric icon={<Wallet size={20} />} label="Portfolio" value={formatUsd(readiness?.portfolio_value_usd ?? 0)} />
         <Metric icon={<Activity size={20} />} label="Daily PnL" value={formatPct(dailyPnl)} />
         <Metric icon={<Shield size={20} />} label="Readiness" value={readiness?.ready ? "Ready" : "Needs check"} />
-        <Metric icon={<CheckCircle2 size={20} />} label="Data / Portfolio" value={`${dataMode} / ${portfolioMode}`} />
-        <Metric icon={<Wallet size={20} />} label="Agent Wallet" value={shortAddress(readiness?.participant)} />
+        <Metric icon={<LineChart size={20} />} label="Market Regime" value={marketRegime} />
+        <Metric icon={<CheckCircle2 size={20} />} label="Stack" value={`${dataMode} / ${portfolioMode}`} />
       </section>
       <p className="syncLine">Auto-refresh {Math.max(POLL_MS, 5000) / 1000}s · last sync {lastUpdated ?? "pending"}</p>
 
@@ -354,16 +373,20 @@ function App() {
         <section className="panelGrid missionGrid">
           <article className="panel widePanel runtimePanel">
             <div>
-              <p className="eyebrow">Autonomous Runtime</p>
-              <h2>Self-custody agent with hourly scheduler path</h2>
+              <p className="eyebrow">Track 1 Cockpit</p>
+              <h2>Autonomous BSC trading desk with bounded TWAK execution</h2>
+              <p className="subtitle compactSubtitle">
+                The agent turns CMC market state into a thesis, checks bankroll risk, submits only
+                mandate-approved swaps, and writes replayable proof for every cycle.
+              </p>
             </div>
             <div className="runtimeStats">
               <div>
-                <span>Contract</span>
-                <strong>0x212c...aed5</strong>
+                <span>Agent</span>
+                <strong>{shortAddress(readiness?.participant)}</strong>
               </div>
               <div>
-                <span>Window</span>
+                <span>Official Window</span>
                 <strong>
                   {status
                     ? `${status.competition.trading_window_start} to ${status.competition.trading_window_end}`
@@ -371,19 +394,38 @@ function App() {
                 </strong>
               </div>
               <div>
-                <span>Scheduler</span>
-                <strong>1 trade / UTC day</strong>
+                <span>Next Duty</span>
+                <strong>{nextRequiredDay ? nextRequiredDay.date : "complete"}</strong>
               </div>
             </div>
           </article>
 
-          <article className="panel decisionPanel">
+          <article className="panel decisionPanel thesisPanel">
             <div className="panelHeader">
-              <h2>Mission Control</h2>
-              <StatusPill
-                label={registered ? "registered" : status?.competition.is_registration_open ? "registration open" : "closed"}
-                tone={registered ? "ok" : status?.competition.is_registration_open ? "warn" : "danger"}
-              />
+              <h2>Current Thesis</h2>
+              <StatusPill label={latestRun?.decision.action ?? "waiting"} tone={riskTone} />
+            </div>
+            {latestRun ? (
+              <div className="thesisBody">
+                <div className="decisionSymbol">{latestRun.decision.symbol ?? "HOLD"}</div>
+                <div className="decisionStats">
+                  <span>{latestRun.decision.action.toUpperCase()}</span>
+                  <span>Score {latestRun.vibe_score.score.toFixed(4)}</span>
+                  <span>Confidence {latestRun.vibe_score.confidence.toFixed(2)}</span>
+                  <span>{formatUsd(latestRun.decision.notional_usd)}</span>
+                </div>
+                <p>{latestRun.decision.reason}</p>
+              </div>
+            ) : (
+              <p className="empty">Run a cycle to generate the current trading thesis.</p>
+            )}
+            {result ? <pre className="resultBox">{result}</pre> : null}
+          </article>
+
+          <article className="panel">
+            <div className="panelHeader">
+              <h2>Sponsor Stack Fit</h2>
+              <StatusPill label={readiness?.ready ? "ready" : "attention"} tone={readiness?.ready ? "ok" : "warn"} />
             </div>
             <div className="competitionActions">
               <button className="iconButton" onClick={checkCompetition}>
@@ -399,23 +441,23 @@ function App() {
                 {registered ? "Registered" : "Register"}
               </button>
             </div>
-            <div className="missionCopy">
-              <p>Agent: {readiness?.participant ?? "not resolved"}</p>
-              <p>Deadline: {status?.competition.registration_deadline ?? "unknown"}</p>
-              <p>
-                Live window:{" "}
-                {status
-                  ? `${status.competition.trading_window_start} to ${status.competition.trading_window_end}`
-                  : "unknown"}
-              </p>
-            </div>
-            {result ? <pre className="resultBox">{result}</pre> : null}
-          </article>
-
-          <article className="panel">
-            <div className="panelHeader">
-              <h2>Requirement Fit</h2>
-              <StatusPill label={readiness?.ready ? "ready" : "attention"} tone={readiness?.ready ? "ok" : "warn"} />
+            <div className="stackGrid">
+              <div>
+                <span>CMC</span>
+                <strong>{dataMode}</strong>
+              </div>
+              <div>
+                <span>TWAK</span>
+                <strong>{registered ? "registered" : "open"}</strong>
+              </div>
+              <div>
+                <span>BNB Agent SDK</span>
+                <strong>{status?.bnb_identity.status ?? "disabled"}</strong>
+              </div>
+              <div>
+                <span>TWAK Deadline</span>
+                <strong>{twakDeadline}</strong>
+              </div>
             </div>
             <ul className="requirementsList">
               {(readiness?.requirements ?? []).map((item) => (
@@ -446,6 +488,21 @@ function App() {
               </div>
             </div>
             {readiness?.portfolio_error ? <p className="warningText">{readiness.portfolio_error}</p> : null}
+            {pipeline.length ? (
+              <>
+                <h2 className="miniHeading">Agent Pipeline</h2>
+                <div className="agentPipeline">
+                  {pipeline.map((step) => (
+                    <div key={step.agent}>
+                      <Target size={16} />
+                      <strong>{step.agent}</strong>
+                      <span>{step.role}</span>
+                      <p>{step.output}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
             <h2 className="miniHeading">Recent Runs</h2>
             <TradeHistory runs={ledger} />
           </article>
@@ -553,7 +610,7 @@ function App() {
                 <p className="empty">{latestRun.run_card.summary}</p>
                 {latestRun.run_card.bsc_trace_url ? (
                   <a className="traceLink" href={latestRun.run_card.bsc_trace_url} target="_blank" rel="noreferrer">
-                    Open BscTrace
+                    Open explorer proof
                   </a>
                 ) : null}
                 <pre className="resultBox">{latestRun.run_card.markdown}</pre>
