@@ -61,6 +61,14 @@ opportunities: XRP 0.2839/0.5075, ETH 0.2722/0.5035, USD1 0.2526/0.4229
 
 Each item is `SYMBOL score/confidence`. If `candidate=XRP` appears, that means XRP was the highest-ranked asset after scanning the broader universe; it does not mean the agent only checked XRP.
 
+When TWAK does not support a token symbol on BSC, the execution route uses the CMC BSC contract address:
+
+```text
+route: USDC(USDC) -> XRP(0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe)
+```
+
+That route line is the value TWAK receives. It prevents a CMC-ranked token such as XRP from failing because the TWAK symbol resolver does not know `XRP` on BSC.
+
 Practical tuning:
 
 - `MIN_SIGNAL_SCORE=0.20` is selective but reachable.

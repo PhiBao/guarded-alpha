@@ -103,13 +103,33 @@ class TWAKExecutionAdapter:
 
     def _route(self, decision: TradeDecision) -> tuple[str, str]:
         if decision.action in {DecisionAction.SELL, DecisionAction.ROTATE}:
-            from_symbol = str(decision.inputs.get("from_symbol") or decision.symbol or "").upper()
-            to_symbol = str(decision.inputs.get("to_symbol") or self.source_symbol).upper()
+            from_symbol = _safe_route_token(
+                decision.inputs.get("from_route")
+                or decision.inputs.get("from_address")
+                or decision.inputs.get("from_symbol")
+                or decision.symbol
+                or ""
+            )
+            to_symbol = _safe_route_token(
+                decision.inputs.get("to_route")
+                or decision.inputs.get("to_address")
+                or decision.inputs.get("to_symbol")
+                or self.source_symbol
+            )
         else:
-            from_symbol = str(decision.inputs.get("from_symbol") or self.source_symbol).upper()
-            to_symbol = str(decision.inputs.get("to_symbol") or decision.symbol or "").upper()
-        if not SAFE_SYMBOL.match(from_symbol) or not SAFE_SYMBOL.match(to_symbol):
-            raise ValueError("unsafe swap route")
+            from_symbol = _safe_route_token(
+                decision.inputs.get("from_route")
+                or decision.inputs.get("from_address")
+                or decision.inputs.get("from_symbol")
+                or self.source_symbol
+            )
+            to_symbol = _safe_route_token(
+                decision.inputs.get("to_route")
+                or decision.inputs.get("to_address")
+                or decision.inputs.get("to_symbol")
+                or decision.symbol
+                or ""
+            )
         if from_symbol == to_symbol:
             raise ValueError("swap route must change symbols")
         return from_symbol, to_symbol
@@ -124,13 +144,13 @@ class TWAKExecutionAdapter:
         return self._run_json(["wallet", "portfolio", "--chains", "bsc", "--json"])
 
     def quote_swap(self, amount_usd: float, from_symbol: str, to_symbol: str) -> dict[str, Any]:
-        if not SAFE_SYMBOL.match(from_symbol) or not SAFE_SYMBOL.match(to_symbol):
-            raise ValueError("unsafe token symbol")
+        from_token = _safe_route_token(from_symbol)
+        to_token = _safe_route_token(to_symbol)
         return self._run_json(
             [
                 "swap",
-                from_symbol,
-                to_symbol,
+                from_token,
+                to_token,
                 "--usd",
                 f"{amount_usd:.2f}",
                 "--quote-only",
@@ -210,3 +230,13 @@ def _find_tx_hash(value: Any) -> str | None:
             if found:
                 return found
     return None
+
+
+def _safe_route_token(value: object) -> str:
+    token = str(value or "").strip()
+    if SAFE_ADDRESS.match(token):
+        return token.lower()
+    symbol = token.upper()
+    if SAFE_SYMBOL.match(symbol):
+        return symbol
+    raise ValueError("unsafe swap route")

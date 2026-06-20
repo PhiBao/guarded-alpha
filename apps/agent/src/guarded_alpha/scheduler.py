@@ -44,6 +44,7 @@ def compact_log_line(payload: object) -> str:
     cost_bps = inputs.get("estimated_cost_bps")
     opportunities = _fmt_opportunities(inputs.get("candidate_rankings"))
     gates = _fmt_gates(mandate)
+    route = _fmt_route(inputs, symbol)
 
     target_buy = inputs.get("target_buy_symbol")
     if raw_action == "hold":
@@ -82,6 +83,8 @@ def compact_log_line(payload: object) -> str:
         lines.insert(2, f"  opportunities: {opportunities}")
     if gates:
         lines.insert(2, f"  gates: {gates}")
+    if route and raw_action != "hold":
+        lines.insert(2, f"  route: {route}")
 
     if target_buy:
         lines.insert(
@@ -92,7 +95,7 @@ def compact_log_line(payload: object) -> str:
         lines.insert(
             2,
             (
-                f"  route: {inputs.get('from_symbol', 'UNKNOWN')} -> "
+                f"  rotation: {inputs.get('from_symbol', 'UNKNOWN')} -> "
                 f"{inputs.get('to_symbol', symbol)} without intermediate USDC parking"
             ),
         )
@@ -163,6 +166,16 @@ def _fmt_gates(mandate: object) -> str:
         )
     except (TypeError, ValueError):
         return ""
+
+
+def _fmt_route(inputs: dict, symbol: object) -> str:
+    from_symbol = inputs.get("from_symbol") or "USDC"
+    to_symbol = inputs.get("to_symbol") or symbol
+    from_route = inputs.get("from_route") or inputs.get("from_address") or from_symbol
+    to_route = inputs.get("to_route") or inputs.get("to_address") or to_symbol
+    if not from_route and not to_route:
+        return ""
+    return f"{from_symbol}({from_route}) -> {to_symbol}({to_route})"
 
 
 def _print_payload(payload: object) -> None:

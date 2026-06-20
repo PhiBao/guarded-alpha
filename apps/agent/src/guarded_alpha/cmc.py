@@ -5,7 +5,7 @@ import re
 import subprocess
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -108,6 +108,11 @@ class CMCAPIProvider:
         for chunk in _chunks(safe_symbols, DEFAULT_QUOTE_CHUNK_SIZE):
             payload = self._fetch_quotes(set(chunk))
             assets.extend(self._parse_assets(payload, captured_at))
+        bsc_contracts = self._fetch_bsc_contracts(set(safe_symbols))
+        assets = [
+            replace(asset, contract_address=bsc_contracts.get(asset.symbol.upper()))
+            for asset in assets
+        ]
         fear_greed = self._fetch_fear_greed()
         trend_signals = self._fetch_trend_signals(set(safe_symbols), assets)
         return MarketSnapshot(
@@ -138,6 +143,23 @@ class CMCAPIProvider:
             }
         )
         return self._fetch_path(f"/v1/cryptocurrency/quotes/latest?{params}")
+
+    def _fetch_bsc_contracts(self, symbols: set[str]) -> dict[str, str]:
+        contracts: dict[str, str] = {}
+        for chunk in _chunks(sorted(symbols), DEFAULT_QUOTE_CHUNK_SIZE):
+            params = urllib.parse.urlencode({"symbol": ",".join(chunk)})
+            payload = self._fetch_optional_path(f"/v2/cryptocurrency/info?{params}")
+            data = payload.get("data") if payload else None
+            if not isinstance(data, dict):
+                continue
+            for symbol, rows in data.items():
+                row = rows[0] if isinstance(rows, list) and rows else rows
+                if not isinstance(row, dict):
+                    continue
+                contract_address = _bsc_contract_address(row.get("contract_address"))
+                if contract_address:
+                    contracts[str(symbol).upper()] = contract_address
+        return contracts
 
     def _fetch_path(self, path: str) -> dict:
         request = urllib.request.Request(
@@ -272,6 +294,26 @@ def _cmc_safe_symbols(symbols: set[str]) -> tuple[list[str], list[str]]:
         else:
             skipped.append(symbol)
     return safe, skipped
+
+
+def _bsc_contract_address(value: object) -> str | None:
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        contract_address = str(item.get("contract_address") or "")
+        platform = item.get("platform") if isinstance(item.get("platform"), dict) else {}
+        platform_name = str(platform.get("name") or "").lower()
+        coin = platform.get("coin") if isinstance(platform.get("coin"), dict) else {}
+        platform_symbol = str(coin.get("symbol") or platform.get("symbol") or "").upper()
+        if (
+            contract_address.startswith("0x")
+            and len(contract_address) == 42
+            and ("bnb smart chain" in platform_name or platform_symbol == "BNB")
+        ):
+            return contract_address.lower()
+    return None
 
 
 def _chunks(items: list[str], size: int) -> list[list[str]]:

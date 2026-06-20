@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from guarded_alpha.cmc import CMCAPIProvider, _chunks, _cmc_safe_symbols
+from guarded_alpha.cmc import CMCAPIProvider, _bsc_contract_address, _chunks, _cmc_safe_symbols
 
 
 def test_cmc_api_parser_extracts_assets() -> None:
@@ -38,3 +38,18 @@ def test_cmc_symbol_filter_skips_non_api_symbols() -> None:
 
 def test_cmc_chunks_quote_symbols() -> None:
     assert _chunks(["A", "B", "C", "D", "E"], 2) == [["A", "B"], ["C", "D"], ["E"]]
+
+
+def test_cmc_bsc_contract_address_selects_bep20_address() -> None:
+    contracts = [
+        {
+            "contract_address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+            "platform": {"name": "Ethereum", "coin": {"symbol": "ETH"}},
+        },
+        {
+            "contract_address": "0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe",
+            "platform": {"name": "BNB Smart Chain (BEP20)", "coin": {"symbol": "BNB"}},
+        },
+    ]
+
+    assert _bsc_contract_address(contracts) == "0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe"

@@ -179,6 +179,10 @@ def _trade_notional(portfolio: PortfolioState, mandate: AgentMandate) -> float:
     return _floor_cents(portfolio.total_value_usd * (mandate.max_trade_pct / 100.0))
 
 
+def _route_identifier(asset: MarketAsset) -> str:
+    return asset.contract_address or asset.symbol
+
+
 def _expected_edge_bps(score: float, min_signal_score: float) -> int:
     return max(0, round((score - min_signal_score) * 10_000))
 
@@ -231,8 +235,8 @@ def _candidate_rankings(
 
 def _rotate_decision(
     *,
-    from_symbol: str,
-    to_symbol: str,
+    from_asset: MarketAsset,
+    to_asset: MarketAsset,
     score: float,
     confidence: float,
     notional_usd: float,
@@ -246,7 +250,7 @@ def _rotate_decision(
     short_votes = sum(1 for vote in votes if vote.direction == VoteDirection.SHORT)
     neutral_votes = sum(1 for vote in votes if vote.direction == VoteDirection.NEUTRAL)
     vibe_score = VibeScore(
-        symbol=to_symbol,
+        symbol=to_asset.symbol,
         score=round(score, 4),
         confidence=round(confidence, 4),
         long_votes=long_votes,
@@ -259,17 +263,21 @@ def _rotate_decision(
     return (
         TradeDecision(
             action=DecisionAction.ROTATE,
-            symbol=to_symbol,
+            symbol=to_asset.symbol,
             score=round(score, 4),
             notional_usd=round(notional_usd, 2),
             reason=reason,
             inputs=_decision_inputs(
                 base={
                     **inputs,
-                    "from_symbol": from_symbol,
-                    "to_symbol": to_symbol,
+                    "from_symbol": from_asset.symbol,
+                    "to_symbol": to_asset.symbol,
+                    "from_address": from_asset.contract_address,
+                    "to_address": to_asset.contract_address,
+                    "from_route": _route_identifier(from_asset),
+                    "to_route": _route_identifier(to_asset),
                 },
-                symbol=to_symbol,
+                symbol=to_asset.symbol,
                 score=score,
                 confidence=confidence,
                 snapshot=snapshot,
@@ -546,8 +554,8 @@ def evaluate_strategy(
             rotation_notional = min(notional_usd, position_value)
             if rotation_notional >= min_trade_usd:
                 return _rotate_decision(
-                    from_symbol=weakest_asset.symbol,
-                    to_symbol=best_asset.symbol,
+                    from_asset=weakest_asset,
+                    to_asset=best_asset,
                     score=best_score,
                     confidence=confidence,
                     notional_usd=rotation_notional,
@@ -627,6 +635,8 @@ def evaluate_strategy(
                     "neutral_votes": neutral_votes,
                     "from_symbol": stable_source_symbol,
                     "to_symbol": best_asset.symbol,
+                    "to_address": best_asset.contract_address,
+                    "to_route": _route_identifier(best_asset),
                     "cash_available_usd": round(cash_available, 2),
                     "min_cash_buffer_usd": mandate.min_cash_buffer_usd,
                     "expected_edge_bps": expected_edge_bps,

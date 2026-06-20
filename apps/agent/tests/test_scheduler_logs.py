@@ -13,6 +13,8 @@ def test_compact_log_line_summarizes_decision() -> None:
                 "inputs": {
                     "from_symbol": "ETH",
                     "to_symbol": "XRP",
+                    "from_route": "ETH",
+                    "to_route": "0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe",
                     "expected_edge_bps": 122,
                     "estimated_cost_bps": 35,
                     "candidate_rankings": [
@@ -46,7 +48,10 @@ def test_compact_log_line_summarizes_decision() -> None:
         "max_position=70% score=weighted_alpha_not_confidence"
     ) in line
     assert "opportunities: XRP 0.2622/0.4816, ETH 0.2511/0.4722" in line
-    assert "route: ETH -> XRP without intermediate USDC parking" in line
+    assert (
+        "route: ETH(ETH) -> XRP(0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe)"
+    ) in line
+    assert "rotation: ETH -> XRP without intermediate USDC parking" in line
     assert "scanned=2" in line
 
 
