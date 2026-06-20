@@ -32,10 +32,10 @@ Run this when the machine starts and leave the terminal open:
 This starts:
 
 - FastAPI on `http://127.0.0.1:8000`
-- hourly scheduler
+- scheduled scanner
 - Vite console on `http://127.0.0.1:5173`
 
-The scheduler has a process lock and submits at most one trade per UTC day.
+The scheduler has a process lock, scans every `SCHEDULER_INTERVAL_SECONDS`, and submits only when normal score, edge, and risk gates pass. `MAX_DAILY_TRADES` is a safety brake, not a target.
 
 Expected preflight state:
 
@@ -56,7 +56,19 @@ loginctl enable-linger "$USER"
 
 The installer renders `ops/systemd/*.service.template` into `~/.config/systemd/user/` with the current repo path, current `uv` path, and current `PATH`.
 
-The scheduler wakes every hour and submits one trade per day if the local audit log has no submitted trade for that UTC date.
+The scheduler wakes every `SCHEDULER_INTERVAL_SECONDS`, scans the eligible CMC universe, and may submit multiple approved trades per day up to `MAX_DAILY_TRADES`.
+
+## Reading Scheduler Logs
+
+Compact scheduler logs show both the selected candidate and the broader opportunity scan:
+
+```text
+gates: min_score=0.20 min_edge=50bps max_trade=20% max_position=70% score=weighted_alpha_not_confidence
+opportunities: XRP 0.2839/0.5075, ETH 0.2722/0.5035, USD1 0.2526/0.4229
+market: regime=selective scanned=146 cmc_chunks=4
+```
+
+`score` is a weighted alpha score, not a confidence percentage. `conf` is separate vote conviction. `scanned=146` means the agent evaluated the broad CMC universe and selected the highest-ranked candidate.
 
 ## Verify Services
 

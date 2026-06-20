@@ -9,11 +9,11 @@ Guarded Alpha turns market data into bounded on-chain execution. It reads CMC ma
 - reads market data from CoinMarketCap
 - scores opportunities with the BNB Vibe Score strategy engine and an explicit Scout / Quant / Risk / Executor / Reviewer pipeline
 - buys or sells through TWAK on BSC
-- recycles held assets back into USDC when reserves get low
+- rotates weaker held assets directly into stronger targets when cash should be preserved
 - blocks unsafe actions with a hard risk mandate
 - records every run in an append-only proof ledger with market provenance, quote, receipt, risk checks, and explorer links when available
 - exposes a local React operator console for portfolio, PnL, readiness, signals, risk, and run cards
-- runs an hourly scheduler with a single-instance lock
+- runs a scheduled scanner with a single-instance lock
 
 ## Current Agent State
 
@@ -23,7 +23,7 @@ Guarded Alpha turns market data into bounded on-chain execution. It reads CMC ma
 - Portfolio mode: TWAK BSC wallet
 - Live trading: enabled
 - Source asset: USDC
-- Current live universe: `ETH,TWT,USDC`
+- Current live universe: full BNB Hack eligible token universe from CMC; current runs show `scanned=146` and `cmc_chunks=4`
 
 ## Strategy
 
@@ -40,6 +40,33 @@ The agent evaluates a constrained in-scope universe using seven voters:
 Votes are weighted, normalized, and converted into a BNB Vibe Score. A trade executes only after the risk governor approves it.
 
 The agent is not a one-way buyer. If a stronger opportunity clears the edge gate but cash is better preserved for operations, the strategy can rotate a weaker held asset directly into the target, for example `ETH -> XRP`, without parking in USDC for a later cycle.
+
+### How To Read The Score
+
+`score` is a weighted alpha score, not a confidence percentage. Each voter emits a signal from `-1` to `1`, then the strategy combines those signals using weights. Because some voters intentionally offset each other, such as momentum versus mean reversion, a score around `0.25` can already be strong in current market conditions.
+
+`confidence` is separate. It measures how decisive the underlying voter signals are. A token can have a decent score with moderate confidence, or high confidence on a risky move that still fails the score or risk gates.
+
+The compact scheduler log prints the active gates:
+
+```text
+gates: min_score=0.20 min_edge=50bps max_trade=20% max_position=70% score=weighted_alpha_not_confidence
+```
+
+It also prints the top ranked opportunities:
+
+```text
+opportunities: XRP 0.2839/0.5075, ETH 0.2722/0.5035, USD1 0.2526/0.4229
+```
+
+Each item is `SYMBOL score/confidence`. If `candidate=XRP` appears, that means XRP was the highest-ranked asset after scanning the broader universe; it does not mean the agent only checked XRP.
+
+Practical tuning:
+
+- `MIN_SIGNAL_SCORE=0.20` is selective but reachable.
+- `MIN_SIGNAL_SCORE=0.30` is very strict for this formula; in recent full-universe scans no token cleared it.
+- `MIN_EXPECTED_EDGE_BPS=50` requires the score to clear the threshold by at least 50 bps of modeled edge.
+- Use `MAX_DAILY_TRADES` as a brake, not as a target.
 
 Each decision is also annotated by a small agent pipeline:
 
@@ -124,7 +151,7 @@ When you open the machine, run one script and leave the terminal open:
 ./scripts/start-local-agent.sh
 ```
 
-It runs preflight, starts the API, starts the hourly scheduler, and opens the local web console process.
+It runs preflight, starts the API, starts the scheduled scanner, and opens the local web console process.
 
 ## Manual Local Run
 
@@ -165,7 +192,7 @@ uv run guarded-alpha-scheduler
 
 The scheduler wakes every `SCHEDULER_INTERVAL_SECONDS` and keeps scanning for approved edge. It does not stop after one UTC-day trade, but it can submit at most `MAX_DAILY_TRADES` live trades per day.
 
-The default policy is PnL-first, not volume-first: `MIN_SIGNAL_SCORE=0.20`, `MIN_EXPECTED_EDGE_BPS=50`, `MAX_DAILY_TRADES=8`, and `SCHEDULER_INTERVAL_SECONDS=900`. That keeps the agent responsive without trading every weak fluctuation. A process lock prevents duplicate schedulers.
+The default policy is PnL-first: `MIN_SIGNAL_SCORE=0.20`, `MIN_EXPECTED_EDGE_BPS=50`, `MAX_DAILY_TRADES=8`, and `SCHEDULER_INTERVAL_SECONDS=900`. That keeps the agent responsive without trading every weak fluctuation. A process lock prevents duplicate schedulers.
 
 ## Runtime
 

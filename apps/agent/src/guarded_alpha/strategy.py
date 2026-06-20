@@ -208,6 +208,27 @@ def _weakest_funding_candidate(
     return min(alternatives or sell_candidates, key=lambda item: item[2])
 
 
+def _candidate_rankings(
+    candidates: list[tuple[MarketAsset, list[StrategyVote], float]],
+    *,
+    limit: int = 8,
+) -> list[dict[str, float | str]]:
+    ranked = sorted(candidates, key=lambda item: item[2], reverse=True)
+    rows: list[dict[str, float | str]] = []
+    for asset, votes, score in ranked[:limit]:
+        confidence = sum(vote.confidence * vote.weight for vote in votes)
+        rows.append(
+            {
+                "symbol": asset.symbol,
+                "score": round(score, 4),
+                "confidence": round(confidence, 4),
+                "change_24h_pct": round(asset.change_24h_pct, 4),
+                "volume_24h_usd": round(asset.volume_24h_usd, 2),
+            }
+        )
+    return rows
+
+
 def _rotate_decision(
     *,
     from_symbol: str,
@@ -364,6 +385,7 @@ def evaluate_strategy(
     trade_notional = _trade_notional(portfolio, mandate)
     held_positions = _held_non_stable_positions(portfolio, mandate)
     stable_pct = (portfolio.stable_value_usd / portfolio.total_value_usd) * 100.0
+    candidate_rankings = _candidate_rankings(candidates)
     min_sell_notional = min(trade_notional, min_trade_usd)
     sell_candidates = [
         (asset, votes, score, held_positions.get(asset.symbol.upper(), 0.0))
@@ -410,6 +432,7 @@ def evaluate_strategy(
                         "min_confidence": min_confidence,
                         "expected_edge_bps": expected_edge_bps,
                         "estimated_cost_bps": estimated_cost_bps,
+                        "candidate_rankings": candidate_rankings,
                     },
                     symbol=best_asset.symbol,
                     score=best_score,
@@ -456,6 +479,7 @@ def evaluate_strategy(
                         "min_signal_score": min_signal_score,
                         "expected_edge_bps": expected_edge_bps,
                         "estimated_cost_bps": estimated_cost_bps,
+                        "candidate_rankings": candidate_rankings,
                     },
                     symbol=best_asset.symbol,
                     score=best_score,
@@ -495,6 +519,7 @@ def evaluate_strategy(
                         "expected_edge_bps": expected_edge_bps,
                         "estimated_cost_bps": estimated_cost_bps,
                         "min_expected_edge_bps": mandate.min_expected_edge_bps,
+                        "candidate_rankings": candidate_rankings,
                     },
                     symbol=best_asset.symbol,
                     score=best_score,
@@ -538,6 +563,7 @@ def evaluate_strategy(
                         "from_score": round(weakest_score, 4),
                         "expected_edge_bps": expected_edge_bps,
                         "estimated_cost_bps": estimated_cost_bps,
+                        "candidate_rankings": candidate_rankings,
                     },
                     snapshot=snapshot,
                     portfolio=portfolio,
@@ -561,6 +587,7 @@ def evaluate_strategy(
                         "min_cash_buffer_usd": mandate.min_cash_buffer_usd,
                         "expected_edge_bps": expected_edge_bps,
                         "estimated_cost_bps": estimated_cost_bps,
+                        "candidate_rankings": candidate_rankings,
                     },
                     symbol=best_asset.symbol,
                     score=best_score,
@@ -604,6 +631,7 @@ def evaluate_strategy(
                     "min_cash_buffer_usd": mandate.min_cash_buffer_usd,
                     "expected_edge_bps": expected_edge_bps,
                     "estimated_cost_bps": estimated_cost_bps,
+                    "candidate_rankings": candidate_rankings,
                 },
                 symbol=best_asset.symbol,
                 score=best_score,

@@ -24,6 +24,7 @@ def compact_log_line(payload: object) -> str:
     risk = row.get("risk") or {}
     receipt = row.get("receipt") or {}
     snapshot = row.get("snapshot") or {}
+    mandate = row.get("mandate") or {}
     provenance = snapshot.get("provenance") or {}
     inputs = decision.get("inputs") or {}
 
@@ -41,6 +42,8 @@ def compact_log_line(payload: object) -> str:
     chunks = provenance.get("quote_chunks", "n/a")
     edge_bps = inputs.get("expected_edge_bps")
     cost_bps = inputs.get("estimated_cost_bps")
+    opportunities = _fmt_opportunities(inputs.get("candidate_rankings"))
+    gates = _fmt_gates(mandate)
 
     target_buy = inputs.get("target_buy_symbol")
     if raw_action == "hold":
@@ -75,6 +78,10 @@ def compact_log_line(payload: object) -> str:
         ),
         f"  execution: {mode} / {submitted}",
     ]
+    if opportunities:
+        lines.insert(2, f"  opportunities: {opportunities}")
+    if gates:
+        lines.insert(2, f"  gates: {gates}")
 
     if target_buy:
         lines.insert(
@@ -120,6 +127,42 @@ def _fmt_bps(value: object) -> str:
         return f"{int(value)}bps"
     except (TypeError, ValueError):
         return "n/a"
+
+
+def _fmt_opportunities(value: object) -> str:
+    if not isinstance(value, list):
+        return ""
+    items: list[str] = []
+    for row in value[:6]:
+        if not isinstance(row, dict):
+            continue
+        symbol = row.get("symbol")
+        score = row.get("score")
+        confidence = row.get("confidence")
+        try:
+            items.append(f"{symbol} {float(score):.4f}/{float(confidence):.4f}")
+        except (TypeError, ValueError):
+            continue
+    return ", ".join(items)
+
+
+def _fmt_gates(mandate: object) -> str:
+    if not isinstance(mandate, dict):
+        return ""
+    min_score = mandate.get("min_signal_score")
+    min_edge = mandate.get("min_expected_edge_bps")
+    max_trade = mandate.get("max_trade_pct")
+    max_position = mandate.get("max_position_pct")
+    try:
+        return (
+            f"min_score={float(min_score):.2f} "
+            f"min_edge={int(min_edge)}bps "
+            f"max_trade={float(max_trade):.0f}% "
+            f"max_position={float(max_position):.0f}% "
+            "score=weighted_alpha_not_confidence"
+        )
+    except (TypeError, ValueError):
+        return ""
 
 
 def _print_payload(payload: object) -> None:
