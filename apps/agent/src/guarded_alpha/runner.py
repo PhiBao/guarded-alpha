@@ -117,24 +117,13 @@ def run_scheduled_tick(config: AppConfig | None = None) -> AgentRun | None:
     resolved = config or load_config()
     audit = AuditLog(resolved.audit_path)
     today = now_utc().date()
+    submitted_count = audit.submitted_trade_count_on(today)
     if resolved.live_trading_enabled:
-        submitted_count = audit.submitted_trade_count_on(today)
         if submitted_count >= resolved.max_daily_trades:
-            return None
-        if submitted_count > 0:
-            return run_once(
-                resolved,
-                force_qualification_trade=False,
-                min_score_override=resolved.high_confidence_min_score,
-                min_confidence=resolved.high_confidence_min_confidence,
-            )
-    else:
-        already_ran = audit.has_run_on(today)
-        if already_ran:
             return None
     return run_once(
         resolved,
-        force_qualification_trade=resolved.qualification_trade_enabled,
+        force_qualification_trade=False,
     )
 
 

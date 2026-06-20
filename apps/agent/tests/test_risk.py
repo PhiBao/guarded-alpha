@@ -76,3 +76,68 @@ def test_risk_allows_sell_that_restores_stable_reserve(tmp_path) -> None:
     verdict = evaluate_risk(decision, snapshot, portfolio, mandate)
 
     assert verdict.status == RiskStatus.APPROVED
+
+
+def test_risk_allows_direct_rotation_without_stable_reserve_gate(tmp_path) -> None:
+    mandate = replace(
+        load_config().mandate,
+        kill_switch_path=str(tmp_path / "KILL_SWITCH"),
+        min_cash_buffer_usd=3.0,
+    )
+    snapshot = fixture_snapshot()
+    portfolio = PortfolioState(
+        total_value_usd=100.0,
+        stable_value_usd=4.0,
+        daily_pnl_pct=0.0,
+        drawdown_pct=0.0,
+        positions={"USDC": 4.0, "ETH": 40.0, "TWT": 56.0},
+    )
+    decision = TradeDecision(
+        action=DecisionAction.ROTATE,
+        symbol="CAKE",
+        score=0.31,
+        notional_usd=20.0,
+        reason="rotate into best signal",
+        inputs={
+            "from_symbol": "ETH",
+            "to_symbol": "CAKE",
+            "expected_edge_bps": mandate.min_expected_edge_bps,
+        },
+    )
+
+    verdict = evaluate_risk(decision, snapshot, portfolio, mandate)
+
+    assert verdict.status == RiskStatus.APPROVED
+
+
+def test_risk_rejects_rotation_that_exceeds_position_cap(tmp_path) -> None:
+    mandate = replace(
+        load_config().mandate,
+        kill_switch_path=str(tmp_path / "KILL_SWITCH"),
+        max_position_pct=30.0,
+    )
+    snapshot = fixture_snapshot()
+    portfolio = PortfolioState(
+        total_value_usd=100.0,
+        stable_value_usd=5.0,
+        daily_pnl_pct=0.0,
+        drawdown_pct=0.0,
+        positions={"USDC": 5.0, "ETH": 40.0, "CAKE": 25.0, "TWT": 30.0},
+    )
+    decision = TradeDecision(
+        action=DecisionAction.ROTATE,
+        symbol="CAKE",
+        score=0.31,
+        notional_usd=10.0,
+        reason="rotate into best signal",
+        inputs={
+            "from_symbol": "ETH",
+            "to_symbol": "CAKE",
+            "expected_edge_bps": mandate.min_expected_edge_bps,
+        },
+    )
+
+    verdict = evaluate_risk(decision, snapshot, portfolio, mandate)
+
+    assert verdict.status == RiskStatus.REJECTED
+    assert any("Target position" in reason for reason in verdict.reasons)

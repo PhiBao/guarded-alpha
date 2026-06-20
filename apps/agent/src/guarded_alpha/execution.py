@@ -102,7 +102,7 @@ class TWAKExecutionAdapter:
         )
 
     def _route(self, decision: TradeDecision) -> tuple[str, str]:
-        if decision.action == DecisionAction.SELL:
+        if decision.action in {DecisionAction.SELL, DecisionAction.ROTATE}:
             from_symbol = str(decision.inputs.get("from_symbol") or decision.symbol or "").upper()
             to_symbol = str(decision.inputs.get("to_symbol") or self.source_symbol).upper()
         else:

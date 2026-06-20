@@ -42,7 +42,6 @@ def run_preflight() -> list[CheckResult]:
             ),
             {
                 "live_trading_enabled": config.live_trading_enabled,
-                "qualification_trade_enabled": config.qualification_trade_enabled,
             },
         )
     )

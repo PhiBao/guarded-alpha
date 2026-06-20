@@ -9,6 +9,7 @@ from typing import Any
 class DecisionAction(StrEnum):
     BUY = "buy"
     SELL = "sell"
+    ROTATE = "rotate"
     HOLD = "hold"
 
 
@@ -68,8 +69,11 @@ class AgentMandate:
     max_drawdown_pct: float
     daily_loss_limit_pct: float
     max_trade_pct: float
+    max_position_pct: float
     max_slippage_bps: int
     min_stable_reserve_pct: float
+    min_cash_buffer_usd: float
+    min_expected_edge_bps: int
     min_signal_score: float
     max_data_age_seconds: int
     kill_switch_path: str

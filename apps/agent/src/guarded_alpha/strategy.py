@@ -179,6 +179,10 @@ def _trade_notional(portfolio: PortfolioState, mandate: AgentMandate) -> float:
     return _floor_cents(portfolio.total_value_usd * (mandate.max_trade_pct / 100.0))
 
 
+def _expected_edge_bps(score: float, min_signal_score: float) -> int:
+    return max(0, round((score - min_signal_score) * 10_000))
+
+
 def _held_non_stable_positions(
     portfolio: PortfolioState,
     mandate: AgentMandate,
@@ -190,6 +194,71 @@ def _held_non_stable_positions(
         and symbol.upper() not in mandate.stable_symbols
         and value > 0
     }
+
+
+def _weakest_funding_candidate(
+    sell_candidates: list[tuple[MarketAsset, list[StrategyVote], float, float]],
+    target_symbol: str,
+) -> tuple[MarketAsset, list[StrategyVote], float, float] | None:
+    if not sell_candidates:
+        return None
+    alternatives = [
+        item for item in sell_candidates if item[0].symbol.upper() != target_symbol.upper()
+    ]
+    return min(alternatives or sell_candidates, key=lambda item: item[2])
+
+
+def _rotate_decision(
+    *,
+    from_symbol: str,
+    to_symbol: str,
+    score: float,
+    confidence: float,
+    notional_usd: float,
+    reason: str,
+    votes: list[StrategyVote],
+    inputs: dict,
+    snapshot: MarketSnapshot,
+    portfolio: PortfolioState,
+) -> tuple[TradeDecision, VibeScore]:
+    long_votes = sum(1 for vote in votes if vote.direction == VoteDirection.LONG)
+    short_votes = sum(1 for vote in votes if vote.direction == VoteDirection.SHORT)
+    neutral_votes = sum(1 for vote in votes if vote.direction == VoteDirection.NEUTRAL)
+    vibe_score = VibeScore(
+        symbol=to_symbol,
+        score=round(score, 4),
+        confidence=round(confidence, 4),
+        long_votes=long_votes,
+        short_votes=short_votes,
+        neutral_votes=neutral_votes,
+        full_consensus=short_votes == 0 and neutral_votes <= 1,
+        votes=votes,
+        breakdown={vote.name: round(vote.signal * vote.weight, 4) for vote in votes},
+    )
+    return (
+        TradeDecision(
+            action=DecisionAction.ROTATE,
+            symbol=to_symbol,
+            score=round(score, 4),
+            notional_usd=round(notional_usd, 2),
+            reason=reason,
+            inputs=_decision_inputs(
+                base={
+                    **inputs,
+                    "from_symbol": from_symbol,
+                    "to_symbol": to_symbol,
+                },
+                symbol=to_symbol,
+                score=score,
+                confidence=confidence,
+                snapshot=snapshot,
+                portfolio=portfolio,
+                action=DecisionAction.ROTATE,
+                reason=reason,
+            ),
+        ),
+        vibe_score,
+    )
 
 
 def _sell_decision(
@@ -209,6 +278,9 @@ def _sell_decision(
     short_votes = sum(1 for vote in votes if vote.direction == VoteDirection.SHORT)
     neutral_votes = sum(1 for vote in votes if vote.direction == VoteDirection.NEUTRAL)
     confidence = sum(vote.confidence * vote.weight for vote in votes)
+    pipeline_symbol = str(inputs.get("target_buy_symbol") or symbol)
+    pipeline_score = float(inputs.get("target_buy_score") or score)
+    pipeline_confidence = float(inputs.get("target_buy_confidence") or confidence)
     vibe_score = VibeScore(
         symbol=symbol,
         score=round(score, 4),
@@ -233,9 +305,9 @@ def _sell_decision(
                     "from_symbol": symbol,
                     "to_symbol": to_symbol,
                 },
-                symbol=symbol,
-                score=score,
-                confidence=confidence,
+                symbol=pipeline_symbol,
+                score=pipeline_score,
+                confidence=pipeline_confidence,
                 snapshot=snapshot,
                 portfolio=portfolio,
                 action=DecisionAction.SELL,
@@ -299,25 +371,6 @@ def evaluate_strategy(
         if held_positions.get(asset.symbol.upper(), 0.0) >= min_sell_notional
     ]
 
-    if sell_candidates and stable_pct < mandate.min_stable_reserve_pct + 8:
-        weakest_asset, weakest_votes, weakest_score, position_value = min(
-            sell_candidates, key=lambda item: item[2]
-        )
-        return _sell_decision(
-            symbol=weakest_asset.symbol,
-            score=weakest_score,
-            notional_usd=min(trade_notional, position_value, max(min_trade_usd, 1.0)),
-            reason="Stable reserve is low, recycling held risk asset back to USDC.",
-            votes=weakest_votes,
-            inputs={
-                "stable_pct": stable_pct,
-                "position_value_usd": position_value,
-                "stable_symbols": mandate.stable_symbols,
-            },
-            snapshot=snapshot,
-            portfolio=portfolio,
-        )
-
     best_asset, votes, best_score = max(candidates, key=lambda item: item[2])
     long_votes = sum(1 for vote in votes if vote.direction == VoteDirection.LONG)
     short_votes = sum(1 for vote in votes if vote.direction == VoteDirection.SHORT)
@@ -337,6 +390,8 @@ def evaluate_strategy(
     min_signal_score = (
         mandate.min_signal_score if min_score_override is None else min_score_override
     )
+    expected_edge_bps = _expected_edge_bps(best_score, min_signal_score)
+    estimated_cost_bps = 35
 
     if min_confidence is not None and confidence < min_confidence:
         return (
@@ -353,6 +408,8 @@ def evaluate_strategy(
                         "best_symbol": best_asset.symbol,
                         "confidence": round(confidence, 4),
                         "min_confidence": min_confidence,
+                        "expected_edge_bps": expected_edge_bps,
+                        "estimated_cost_bps": estimated_cost_bps,
                     },
                     symbol=best_asset.symbol,
                     score=best_score,
@@ -397,6 +454,8 @@ def evaluate_strategy(
                     base={
                         "best_symbol": best_asset.symbol,
                         "min_signal_score": min_signal_score,
+                        "expected_edge_bps": expected_edge_bps,
+                        "estimated_cost_bps": estimated_cost_bps,
                     },
                     symbol=best_asset.symbol,
                     score=best_score,
@@ -418,79 +477,133 @@ def evaluate_strategy(
             "Daily qualification trade selected below normal threshold, "
             "still subject to risk gate."
         )
-    stable_after_pct = (
-        (portfolio.stable_value_usd - notional_usd) / portfolio.total_value_usd
-    ) * 100
-    if force_qualification_trade and stable_after_pct < mandate.min_stable_reserve_pct:
-        if sell_candidates:
-            weakest_asset, weakest_votes, weakest_score, position_value = min(
-                sell_candidates, key=lambda item: item[2]
-            )
-            if stable_pct >= mandate.min_stable_reserve_pct and weakest_score >= 0:
-                return (
-                    TradeDecision(
-                        action=DecisionAction.HOLD,
-                        symbol=best_asset.symbol,
-                        score=round(best_score, 4),
-                        notional_usd=0.0,
-                        reason=(
-                            "Qualification buy would breach stable reserve, and no held "
-                            "asset has a bearish sell signal."
-                        ),
-                        inputs=_decision_inputs(
-                            base={
-                                "best_symbol": best_asset.symbol,
-                                "stable_pct": stable_pct,
-                                "stable_after_pct": stable_after_pct,
-                                "weakest_symbol": weakest_asset.symbol,
-                                "weakest_score": round(weakest_score, 4),
-                            },
-                            symbol=best_asset.symbol,
-                            score=best_score,
-                            confidence=confidence,
-                            snapshot=snapshot,
-                            portfolio=portfolio,
-                            action=DecisionAction.HOLD,
-                            reason=(
-                                "Qualification buy would breach stable reserve, and no held "
-                                "asset has a bearish sell signal."
-                            ),
-                        ),
-                    ),
-                    vibe_score,
-                )
-            return _sell_decision(
-                symbol=weakest_asset.symbol,
-                score=weakest_score,
-                notional_usd=min(trade_notional, position_value, max(min_trade_usd, 1.0)),
-                reason="Qualification cycle recycled held asset to preserve USDC reserve.",
-                votes=weakest_votes,
-                inputs={
-                    "stable_pct": stable_pct,
-                    "position_value_usd": position_value,
-                    "stable_symbols": mandate.stable_symbols,
-                },
-                snapshot=snapshot,
-                portfolio=portfolio,
-            )
 
+    if expected_edge_bps < mandate.min_expected_edge_bps and not force_qualification_trade:
+        return (
+            TradeDecision(
+                action=DecisionAction.HOLD,
+                symbol=best_asset.symbol,
+                score=round(best_score, 4),
+                notional_usd=0.0,
+                reason=(
+                    "Expected edge did not clear estimated transaction cost and "
+                    "minimum edge buffer."
+                ),
+                inputs=_decision_inputs(
+                    base={
+                        "best_symbol": best_asset.symbol,
+                        "expected_edge_bps": expected_edge_bps,
+                        "estimated_cost_bps": estimated_cost_bps,
+                        "min_expected_edge_bps": mandate.min_expected_edge_bps,
+                    },
+                    symbol=best_asset.symbol,
+                    score=best_score,
+                    confidence=confidence,
+                    snapshot=snapshot,
+                    portfolio=portfolio,
+                    action=DecisionAction.HOLD,
+                    reason=(
+                        "Expected edge did not clear estimated transaction cost and "
+                        "minimum edge buffer."
+                    ),
+                ),
+            ),
+            vibe_score,
+        )
+
+    cash_available = max(portfolio.stable_value_usd - mandate.min_cash_buffer_usd, 0.0)
+    buy_notional = min(notional_usd, cash_available)
+    can_buy_from_stable = buy_notional >= min_trade_usd
+    if buy_notional < notional_usd:
+        funding_candidate = _weakest_funding_candidate(sell_candidates, best_asset.symbol)
+        if funding_candidate is not None:
+            weakest_asset, _weakest_votes, weakest_score, position_value = funding_candidate
+            rotation_notional = min(notional_usd, position_value)
+            if rotation_notional >= min_trade_usd:
+                return _rotate_decision(
+                    from_symbol=weakest_asset.symbol,
+                    to_symbol=best_asset.symbol,
+                    score=best_score,
+                    confidence=confidence,
+                    notional_usd=rotation_notional,
+                    reason=(
+                        f"{best_asset.symbol} has the strongest current edge; rotating "
+                        f"from weaker held {weakest_asset.symbol} instead of spending "
+                        "the cash buffer."
+                    ),
+                    votes=votes,
+                    inputs={
+                        "stable_pct": stable_pct,
+                        "from_position_value_usd": position_value,
+                        "from_score": round(weakest_score, 4),
+                        "expected_edge_bps": expected_edge_bps,
+                        "estimated_cost_bps": estimated_cost_bps,
+                    },
+                    snapshot=snapshot,
+                    portfolio=portfolio,
+                )
+    if not can_buy_from_stable:
+        return (
+            TradeDecision(
+                action=DecisionAction.HOLD,
+                symbol=best_asset.symbol,
+                score=round(best_score, 4),
+                notional_usd=0.0,
+                reason=(
+                    "Buy signal cleared, but cash buffer left too little USDC and no "
+                    "held asset could be rotated into the target."
+                ),
+                inputs=_decision_inputs(
+                    base={
+                        "best_symbol": best_asset.symbol,
+                        "stable_pct": stable_pct,
+                        "cash_available_usd": round(cash_available, 2),
+                        "min_cash_buffer_usd": mandate.min_cash_buffer_usd,
+                        "expected_edge_bps": expected_edge_bps,
+                        "estimated_cost_bps": estimated_cost_bps,
+                    },
+                    symbol=best_asset.symbol,
+                    score=best_score,
+                    confidence=confidence,
+                    snapshot=snapshot,
+                    portfolio=portfolio,
+                    action=DecisionAction.HOLD,
+                    reason=(
+                        "Buy signal cleared, but cash buffer left too little USDC and no "
+                        "held asset could be rotated into the target."
+                    ),
+                ),
+            ),
+            vibe_score,
+        )
+
+    stable_source_symbol = next(
+        iter(sorted(mandate.stable_symbols & set(portfolio.positions))),
+        "USDC",
+    )
     return (
         TradeDecision(
             action=DecisionAction.BUY,
             symbol=best_asset.symbol,
             score=round(best_score, 4),
-            notional_usd=round(notional_usd, 2),
+            notional_usd=round(buy_notional, 2),
             reason=reason,
             inputs=_decision_inputs(
                 base={
-                "change_24h_pct": best_asset.change_24h_pct,
-                "sentiment_score": best_asset.sentiment_score,
-                "volatility_7d_pct": best_asset.volatility_7d_pct,
-                "volume_24h_usd": best_asset.volume_24h_usd,
-                "fear_greed": snapshot.fear_greed,
-                "long_votes": long_votes,
-                "short_votes": short_votes,
-                "neutral_votes": neutral_votes,
+                    "change_24h_pct": best_asset.change_24h_pct,
+                    "sentiment_score": best_asset.sentiment_score,
+                    "volatility_7d_pct": best_asset.volatility_7d_pct,
+                    "volume_24h_usd": best_asset.volume_24h_usd,
+                    "fear_greed": snapshot.fear_greed,
+                    "long_votes": long_votes,
+                    "short_votes": short_votes,
+                    "neutral_votes": neutral_votes,
+                    "from_symbol": stable_source_symbol,
+                    "to_symbol": best_asset.symbol,
+                    "cash_available_usd": round(cash_available, 2),
+                    "min_cash_buffer_usd": mandate.min_cash_buffer_usd,
+                    "expected_edge_bps": expected_edge_bps,
+                    "estimated_cost_bps": estimated_cost_bps,
                 },
                 symbol=best_asset.symbol,
                 score=best_score,

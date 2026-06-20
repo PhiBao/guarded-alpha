@@ -39,7 +39,7 @@ The agent evaluates a constrained in-scope universe using seven voters:
 
 Votes are weighted, normalized, and converted into a BNB Vibe Score. A trade executes only after the risk governor approves it.
 
-The agent is not a one-way buyer. If USDC reserve gets too low, or a held risk asset becomes the weakest scored position, the strategy can sell that asset back to USDC. This keeps a small wallet operational instead of exhausting source balance.
+The agent is not a one-way buyer. If a stronger opportunity clears the edge gate but cash is better preserved for operations, the strategy can rotate a weaker held asset directly into the target, for example `ETH -> XRP`, without parking in USDC for a later cycle.
 
 Each decision is also annotated by a small agent pipeline:
 
@@ -55,7 +55,9 @@ Each decision is also annotated by a small agent pipeline:
 - max drawdown
 - daily loss cap
 - max trade size
-- stable reserve minimum
+- max position concentration
+- cash buffer minimum
+- expected edge minimum
 - stale data rejection
 - slippage cap
 - kill switch
@@ -155,15 +157,15 @@ Manual live cycle:
 uv run guarded-alpha-run-once
 ```
 
-Hourly scheduler:
+Scheduled scanner:
 
 ```bash
 uv run guarded-alpha-scheduler
 ```
 
-The scheduler wakes hourly. Its first priority is at least one submitted live trade per UTC day when the risk governor allows it. After that, it can submit at most `MAX_DAILY_TRADES` live trades for the day, and extra trades must clear the stricter `HIGH_CONFIDENCE_MIN_SCORE` and `HIGH_CONFIDENCE_MIN_CONFIDENCE` gates.
+The scheduler wakes every `SCHEDULER_INTERVAL_SECONDS` and keeps scanning for approved edge. It does not stop after one UTC-day trade, but it can submit at most `MAX_DAILY_TRADES` live trades per day.
 
-The default policy is intentionally selective: `MAX_DAILY_TRADES=2`, `HIGH_CONFIDENCE_MIN_SCORE=0.45`, and `HIGH_CONFIDENCE_MIN_CONFIDENCE=0.55`. This gives the agent room to act on unusually strong signals without forcing churn from a small wallet. A process lock prevents duplicate schedulers.
+The default policy is PnL-first, not volume-first: `MIN_SIGNAL_SCORE=0.20`, `MIN_EXPECTED_EDGE_BPS=50`, `MAX_DAILY_TRADES=8`, and `SCHEDULER_INTERVAL_SECONDS=900`. That keeps the agent responsive without trading every weak fluctuation. A process lock prevents duplicate schedulers.
 
 ## Runtime
 

@@ -12,12 +12,129 @@ from guarded_alpha.models import to_jsonable
 from guarded_alpha.runner import run_scheduled_tick
 
 
+def compact_log_line(payload: object) -> str:
+    row = to_jsonable(payload)
+    if isinstance(row, dict) and row.get("ran") is False:
+        return f"[guarded-alpha] idle | {row.get('reason', 'no scheduled run')}"
+    if not isinstance(row, dict):
+        return "[guarded-alpha] scheduler produced an unknown payload"
+
+    decision = row.get("decision") or {}
+    vibe_score = row.get("vibe_score") or {}
+    risk = row.get("risk") or {}
+    receipt = row.get("receipt") or {}
+    snapshot = row.get("snapshot") or {}
+    provenance = snapshot.get("provenance") or {}
+    inputs = decision.get("inputs") or {}
+
+    raw_action = str(decision.get("action") or "unknown").lower()
+    action = raw_action.upper()
+    symbol = decision.get("symbol") or "NONE"
+    score = _fmt_float(decision.get("score"))
+    confidence = _fmt_float(vibe_score.get("confidence"))
+    notional = _fmt_usd(decision.get("notional_usd"))
+    risk_status = str(risk.get("status") or "unknown").upper()
+    mode = str(receipt.get("mode") or "unknown")
+    submitted = "submitted" if receipt.get("submitted") else "not submitted"
+    market_regime = (snapshot.get("trend_signals") or {}).get("market_regime", "unknown")
+    assets_scanned = len(snapshot.get("assets") or [])
+    chunks = provenance.get("quote_chunks", "n/a")
+    edge_bps = inputs.get("expected_edge_bps")
+    cost_bps = inputs.get("estimated_cost_bps")
+
+    target_buy = inputs.get("target_buy_symbol")
+    if raw_action == "hold":
+        headline = (
+            f"[guarded-alpha] NO TRADE | candidate={symbol} score={score} "
+            f"conf={confidence} risk={risk_status}"
+        )
+    elif raw_action == "rotate":
+        headline = (
+            f"[guarded-alpha] ROTATE {inputs.get('from_symbol', 'UNKNOWN')} -> "
+            f"{inputs.get('to_symbol', symbol)} | score={score} conf={confidence} "
+            f"edge={_fmt_bps(edge_bps)} cost={_fmt_bps(cost_bps)} "
+            f"notional={notional} risk={risk_status}"
+        )
+    elif target_buy:
+        headline = (
+            f"[guarded-alpha] {action} {symbol} | target={target_buy} score={score} "
+            f"conf={confidence} notional={notional} risk={risk_status}"
+        )
+    else:
+        headline = (
+            f"[guarded-alpha] {action} {symbol} | score={score} "
+            f"conf={confidence} notional={notional} risk={risk_status}"
+        )
+
+    lines = [
+        headline,
+        f"  why: {decision.get('reason', 'no reason recorded')}",
+        (
+            f"  market: regime={market_regime} scanned={assets_scanned} "
+            f"cmc_chunks={chunks}"
+        ),
+        f"  execution: {mode} / {submitted}",
+    ]
+
+    if target_buy:
+        lines.insert(
+            2,
+            f"  funding: sell {symbol} -> {inputs.get('to_symbol', 'USDC')} to fund {target_buy}",
+        )
+    if raw_action == "rotate":
+        lines.insert(
+            2,
+            (
+                f"  route: {inputs.get('from_symbol', 'UNKNOWN')} -> "
+                f"{inputs.get('to_symbol', symbol)} without intermediate USDC parking"
+            ),
+        )
+
+    reasons = risk.get("reasons") or []
+    if reasons:
+        lines.append(f"  risk: {'; '.join(str(reason) for reason in reasons)}")
+
+    tx_hash = receipt.get("tx_hash")
+    if tx_hash:
+        lines.append(f"  tx: {tx_hash}")
+
+    return "\n".join(lines)
+
+
+def _fmt_float(value: object) -> str:
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _fmt_usd(value: object) -> str:
+    try:
+        return f"${float(value):.2f}"
+    except (TypeError, ValueError):
+        return "$0.00"
+
+
+def _fmt_bps(value: object) -> str:
+    try:
+        return f"{int(value)}bps"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _print_payload(payload: object) -> None:
+    if os.getenv("GUARDED_ALPHA_LOG_FORMAT", "").lower() == "compact":
+        print(compact_log_line(payload), flush=True)
+        return
+    print(json.dumps(to_jsonable(payload), sort_keys=True), flush=True)
+
+
 def tick_main() -> None:
     run = run_scheduled_tick()
     if run is None:
-        print(json.dumps({"ran": False, "reason": "submitted trade already exists today"}))
+        _print_payload({"ran": False, "reason": "max daily submitted trade cap reached"})
         return
-    print(json.dumps(to_jsonable(run), indent=2, sort_keys=True))
+    _print_payload(run)
 
 
 @contextmanager
@@ -45,7 +162,7 @@ def scheduler_main() -> None:
             run = run_scheduled_tick(config)
             payload = run if run is not None else {
                 "ran": False,
-                "reason": "submitted trade already exists today",
+                "reason": "max daily submitted trade cap reached",
             }
-            print(json.dumps(to_jsonable(payload), sort_keys=True), flush=True)
-            time.sleep(60 * 60)
+            _print_payload(payload)
+            time.sleep(config.scheduler_interval_seconds)

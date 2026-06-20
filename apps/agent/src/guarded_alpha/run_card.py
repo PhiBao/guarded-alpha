@@ -67,8 +67,11 @@ def build_run_card(
             "max_drawdown_pct": mandate.max_drawdown_pct,
             "daily_loss_limit_pct": mandate.daily_loss_limit_pct,
             "max_trade_pct": mandate.max_trade_pct,
+            "max_position_pct": mandate.max_position_pct,
             "max_slippage_bps": mandate.max_slippage_bps,
             "min_stable_reserve_pct": mandate.min_stable_reserve_pct,
+            "min_cash_buffer_usd": mandate.min_cash_buffer_usd,
+            "min_expected_edge_bps": mandate.min_expected_edge_bps,
         },
     }
     markdown = "\n".join(

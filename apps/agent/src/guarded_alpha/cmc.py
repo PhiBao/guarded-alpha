@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import urllib.parse
 import urllib.request
@@ -10,6 +11,9 @@ from typing import Protocol
 
 from guarded_alpha.fixtures import fixture_snapshot
 from guarded_alpha.models import MarketAsset, MarketSnapshot
+
+CMC_SYMBOL = re.compile(r"^[0-9A-Z$@-]{1,32}$")
+DEFAULT_QUOTE_CHUNK_SIZE = 40
 
 
 class MarketDataProvider(Protocol):
@@ -96,13 +100,16 @@ class CMCAPIProvider:
     base_url: str = "https://pro-api.coinmarketcap.com"
 
     def snapshot(self, symbols: set[str]) -> MarketSnapshot:
-        if not symbols:
+        safe_symbols, skipped_symbols = _cmc_safe_symbols(symbols)
+        if not safe_symbols:
             raise ValueError("symbols must not be empty")
-        payload = self._fetch_quotes(symbols)
         captured_at = datetime.now(UTC)
-        assets = self._parse_assets(payload, captured_at)
+        assets: list[MarketAsset] = []
+        for chunk in _chunks(safe_symbols, DEFAULT_QUOTE_CHUNK_SIZE):
+            payload = self._fetch_quotes(set(chunk))
+            assets.extend(self._parse_assets(payload, captured_at))
         fear_greed = self._fetch_fear_greed()
-        trend_signals = self._fetch_trend_signals(symbols, assets)
+        trend_signals = self._fetch_trend_signals(set(safe_symbols), assets)
         return MarketSnapshot(
             source="cmc-api",
             assets=assets,
@@ -115,6 +122,11 @@ class CMCAPIProvider:
                     "/v3/fear-and-greed/latest" if fear_greed is not None else "unavailable"
                 ),
                 "trend_signals": trend_signals.get("source", "derived from quotes"),
+                "requested_symbols": len(symbols),
+                "cmc_symbols": len(safe_symbols),
+                "quote_chunks": (len(safe_symbols) + DEFAULT_QUOTE_CHUNK_SIZE - 1)
+                // DEFAULT_QUOTE_CHUNK_SIZE,
+                "skipped_symbols": skipped_symbols,
             },
         )
 
@@ -249,3 +261,18 @@ def _trend_from_assets(assets: list[MarketAsset]) -> dict:
         "market_regime": _market_regime_from_assets(assets),
         "risk_notes": _risk_notes_from_assets(assets),
     }
+
+
+def _cmc_safe_symbols(symbols: set[str]) -> tuple[list[str], list[str]]:
+    safe: list[str] = []
+    skipped: list[str] = []
+    for symbol in sorted({item.upper() for item in symbols}):
+        if CMC_SYMBOL.match(symbol):
+            safe.append(symbol)
+        else:
+            skipped.append(symbol)
+    return safe, skipped
+
+
+def _chunks(items: list[str], size: int) -> list[list[str]]:
+    return [items[index : index + size] for index in range(0, len(items), size)]

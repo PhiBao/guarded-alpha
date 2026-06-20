@@ -50,6 +50,20 @@ def test_twak_adapter_routes_sell_to_source_symbol() -> None:
     assert adapter._route(decision) == ("ETH", "USDC")
 
 
+def test_twak_adapter_routes_rotation_directly_between_assets() -> None:
+    adapter = TWAKExecutionAdapter("twak", "0x212c61b9b72c95d95bf29cf032f5e5635629aed5")
+    decision = TradeDecision(
+        action=DecisionAction.ROTATE,
+        symbol="XRP",
+        score=0.28,
+        notional_usd=10.0,
+        reason="test",
+        inputs={"from_symbol": "ETH", "to_symbol": "XRP"},
+    )
+
+    assert adapter._route(decision) == ("ETH", "XRP")
+
+
 def test_twak_adapter_finds_nested_tx_hash() -> None:
     tx_hash = "0x" + "a" * 64
     payload = {"data": {"receipt": {"transactionHash": tx_hash}}}

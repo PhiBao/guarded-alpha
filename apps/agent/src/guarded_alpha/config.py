@@ -9,16 +9,31 @@ from guarded_alpha.env import load_dotenv
 from guarded_alpha.models import AgentMandate
 
 DEFAULT_ELIGIBLE_SYMBOLS = {
-    "USDT",
-    "USDC",
-    "FDUSD",
-    "ETH",
-    "CAKE",
-    "TWT",
-    "LINK",
     "AAVE",
-    "PENDLE",
+    "ADA",
+    "APE",
     "ASTER",
+    "AVAX",
+    "BCH",
+    "CAKE",
+    "DOGE",
+    "DOT",
+    "ETH",
+    "FDUSD",
+    "FET",
+    "FIL",
+    "FLOKI",
+    "INJ",
+    "LINK",
+    "LTC",
+    "PENDLE",
+    "SFP",
+    "TWT",
+    "UNI",
+    "USDC",
+    "USDT",
+    "XRP",
+    "ZRO",
 }
 
 DEFAULT_STABLE_SYMBOLS = {"USDT", "USDC", "FDUSD"}
@@ -37,10 +52,9 @@ class AppConfig:
     competition_contract: str
     trade_source_symbol: str
     min_daily_trade_usd: float
-    qualification_trade_enabled: bool
+    scan_full_competition_universe: bool
     max_daily_trades: int
-    high_confidence_min_score: float
-    high_confidence_min_confidence: float
+    scheduler_interval_seconds: int
     strategy_weights: dict[str, float]
     mandate: AgentMandate
 
@@ -78,16 +92,25 @@ def load_config() -> AppConfig:
     data_dir = Path(os.getenv("GUARDED_ALPHA_DATA_DIR", "data"))
     audit_path = data_dir / "audit.jsonl"
     kill_switch_path = os.getenv("GUARDED_ALPHA_KILL_SWITCH_PATH", str(data_dir / "KILL_SWITCH"))
+    scan_full_competition_universe = _bool_env("SCAN_FULL_COMPETITION_UNIVERSE", False)
+    eligible_symbols = (
+        competition_eligible_symbols()
+        if scan_full_competition_universe
+        else _symbols_env("ELIGIBLE_SYMBOLS", DEFAULT_ELIGIBLE_SYMBOLS)
+    )
 
     mandate = AgentMandate(
-        eligible_symbols=_symbols_env("ELIGIBLE_SYMBOLS", DEFAULT_ELIGIBLE_SYMBOLS),
+        eligible_symbols=eligible_symbols,
         stable_symbols=_symbols_env("STABLE_SYMBOLS", DEFAULT_STABLE_SYMBOLS),
         max_drawdown_pct=_float_env("MAX_DRAWDOWN_PCT", 15.0),
         daily_loss_limit_pct=_float_env("DAILY_LOSS_LIMIT_PCT", 4.0),
         max_trade_pct=_float_env("MAX_TRADE_PCT", 10.0),
+        max_position_pct=_float_env("MAX_POSITION_PCT", 70.0),
         max_slippage_bps=_int_env("MAX_SLIPPAGE_BPS", 80),
-        min_stable_reserve_pct=_float_env("MIN_STABLE_RESERVE_PCT", 40.0),
-        min_signal_score=_float_env("MIN_SIGNAL_SCORE", 0.35),
+        min_stable_reserve_pct=_float_env("MIN_STABLE_RESERVE_PCT", 0.0),
+        min_cash_buffer_usd=_float_env("MIN_CASH_BUFFER_USD", 3.0),
+        min_expected_edge_bps=_int_env("MIN_EXPECTED_EDGE_BPS", 50),
+        min_signal_score=_float_env("MIN_SIGNAL_SCORE", 0.20),
         max_data_age_seconds=_int_env("MAX_DATA_AGE_SECONDS", 600),
         kill_switch_path=kill_switch_path,
     )
@@ -104,10 +127,9 @@ def load_config() -> AppConfig:
         competition_contract=os.getenv("COMPETITION_CONTRACT", COMPETITION_CONTRACT),
         trade_source_symbol=os.getenv("TRADE_SOURCE_SYMBOL", "USDC").upper(),
         min_daily_trade_usd=_float_env("MIN_DAILY_TRADE_USD", 5.0),
-        qualification_trade_enabled=_bool_env("QUALIFICATION_TRADE_ENABLED", True),
-        max_daily_trades=max(_int_env("MAX_DAILY_TRADES", 2), 1),
-        high_confidence_min_score=_float_env("HIGH_CONFIDENCE_MIN_SCORE", 0.45),
-        high_confidence_min_confidence=_float_env("HIGH_CONFIDENCE_MIN_CONFIDENCE", 0.55),
+        scan_full_competition_universe=scan_full_competition_universe,
+        max_daily_trades=max(_int_env("MAX_DAILY_TRADES", 8), 1),
+        scheduler_interval_seconds=max(_int_env("SCHEDULER_INTERVAL_SECONDS", 900), 60),
         strategy_weights=_strategy_weights_env(),
         mandate=mandate,
     )

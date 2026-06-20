@@ -215,7 +215,7 @@ def get_readiness() -> dict:
 def competition_tick() -> dict:
     run = run_scheduled_tick(load_config())
     if run is None:
-        return {"ran": False, "reason": "submitted trade already exists today"}
+        return {"ran": False, "reason": "max daily submitted trade cap reached"}
     return {"ran": True, "run": to_jsonable(run)}
 
 

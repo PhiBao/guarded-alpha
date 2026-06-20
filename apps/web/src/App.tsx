@@ -352,7 +352,11 @@ function App() {
         <Metric icon={<Activity size={20} />} label="Daily PnL" value={formatPct(dailyPnl)} />
         <Metric icon={<Shield size={20} />} label="Readiness" value={readiness?.ready ? "Ready" : "Needs check"} />
         <Metric icon={<LineChart size={20} />} label="Market Regime" value={marketRegime} />
-        <Metric icon={<CheckCircle2 size={20} />} label="Stack" value={`${dataMode} / ${portfolioMode}`} />
+        <Metric
+          icon={<CheckCircle2 size={20} />}
+          label="Assets Scanned"
+          value={latestRun ? String(latestRun.snapshot.assets.length) : "-"}
+        />
       </section>
       <p className="syncLine">Auto-refresh {Math.max(POLL_MS, 5000) / 1000}s · last sync {lastUpdated ?? "pending"}</p>
 
@@ -575,6 +579,14 @@ function App() {
               <strong>{status ? formatPct(status.mandate.daily_loss_limit_pct) : "-"}</strong>
               <span>Max trade</span>
               <strong>{status ? formatPct(status.mandate.max_trade_pct) : "-"}</strong>
+              <span>Max position</span>
+              <strong>{status ? formatPct(status.mandate.max_position_pct) : "-"}</strong>
+              <span>Cash buffer</span>
+              <strong>
+                {status ? formatUsd(status.mandate.min_cash_buffer_usd) : "-"}
+              </strong>
+              <span>Min edge</span>
+              <strong>{status ? `${status.mandate.min_expected_edge_bps} bps` : "-"}</strong>
               <span>Slippage cap</span>
               <strong>{status ? `${status.mandate.max_slippage_bps} bps` : "-"}</strong>
             </div>

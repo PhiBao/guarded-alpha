@@ -1,5 +1,5 @@
 export type RiskStatus = "approved" | "rejected";
-export type DecisionAction = "buy" | "sell" | "hold";
+export type DecisionAction = "buy" | "sell" | "rotate" | "hold";
 export type VoteDirection = "long" | "short" | "neutral";
 
 export interface Mandate {
@@ -8,8 +8,11 @@ export interface Mandate {
   max_drawdown_pct: number;
   daily_loss_limit_pct: number;
   max_trade_pct: number;
+  max_position_pct: number;
   max_slippage_bps: number;
   min_stable_reserve_pct: number;
+  min_cash_buffer_usd: number;
+  min_expected_edge_bps: number;
   min_signal_score: number;
   max_data_age_seconds: number;
   kill_switch_path: string;

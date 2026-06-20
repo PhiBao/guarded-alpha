@@ -16,7 +16,7 @@ def test_choose_trade_selects_best_fixture_candidate() -> None:
     assert decision.score >= mandate.min_signal_score
 
 
-def test_strategy_recycles_held_asset_when_stable_reserve_is_low() -> None:
+def test_strategy_rotates_held_asset_when_cash_buffer_is_low() -> None:
     mandate = load_config().mandate
     low_stable_portfolio = PortfolioState(
         total_value_usd=30.0,
@@ -34,12 +34,13 @@ def test_strategy_recycles_held_asset_when_stable_reserve_is_low() -> None:
         min_trade_usd=5.0,
     )
 
-    assert decision.action == DecisionAction.SELL
-    assert decision.inputs["to_symbol"] == "USDC"
+    assert decision.action == DecisionAction.ROTATE
+    assert decision.inputs["from_symbol"] in {"ETH", "TWT"}
+    assert decision.inputs["to_symbol"] == decision.symbol
     assert decision.notional_usd >= 5.0
 
 
-def test_strategy_does_not_sell_non_bearish_asset_for_qualification_churn() -> None:
+def test_strategy_uses_available_cash_for_qualification_trade() -> None:
     mandate = load_config().mandate
     healthy_stable_portfolio = PortfolioState(
         total_value_usd=30.0,
@@ -49,19 +50,20 @@ def test_strategy_does_not_sell_non_bearish_asset_for_qualification_churn() -> N
         positions={"USDC": 16.7, "ETH": 7.0, "TWT": 6.3},
     )
 
-    decision = choose_trade(
+    decision, _ = evaluate_strategy(
         fixture_snapshot(),
         healthy_stable_portfolio,
         mandate,
         force_qualification_trade=True,
         min_trade_usd=5.0,
+        min_score_override=0.99,
     )
 
-    assert decision.action == DecisionAction.HOLD
-    assert "no held asset has a bearish sell signal" in decision.reason
+    assert decision.action == DecisionAction.BUY
+    assert decision.notional_usd == 5.0
 
 
-def test_strategy_requires_high_confidence_for_extra_trade() -> None:
+def test_strategy_can_apply_explicit_confidence_gate() -> None:
     mandate = load_config().mandate
     decision, vibe_score = evaluate_strategy(
         fixture_snapshot(),
@@ -74,3 +76,51 @@ def test_strategy_requires_high_confidence_for_extra_trade() -> None:
     assert decision.action == DecisionAction.HOLD
     assert vibe_score.confidence < 0.99
     assert "high-confidence execution gate" in decision.reason
+
+
+def test_strategy_rotates_weaker_asset_into_strong_buy_when_cash_is_not_enough() -> None:
+    mandate = load_config().mandate
+    portfolio = PortfolioState(
+        total_value_usd=100.0,
+        stable_value_usd=10.0,
+        daily_pnl_pct=0.0,
+        drawdown_pct=0.0,
+        positions={"USDC": 10.0, "ETH": 45.0, "TWT": 45.0},
+    )
+
+    decision, vibe_score = evaluate_strategy(
+        fixture_snapshot(),
+        portfolio,
+        mandate,
+        min_score_override=0.2,
+    )
+
+    assert vibe_score.symbol in mandate.eligible_symbols
+    assert decision.action == DecisionAction.ROTATE
+    assert decision.symbol in mandate.eligible_symbols
+    assert decision.inputs["from_symbol"] != decision.inputs["to_symbol"]
+    assert "rotating from weaker held" in decision.reason
+
+
+def test_qualification_rotates_to_fund_real_signal() -> None:
+    mandate = load_config().mandate
+    portfolio = PortfolioState(
+        total_value_usd=100.0,
+        stable_value_usd=10.0,
+        daily_pnl_pct=0.0,
+        drawdown_pct=0.0,
+        positions={"USDC": 10.0, "ETH": 45.0, "TWT": 45.0},
+    )
+
+    decision, _ = evaluate_strategy(
+        fixture_snapshot(),
+        portfolio,
+        mandate,
+        force_qualification_trade=True,
+        min_trade_usd=5.0,
+        min_score_override=0.2,
+    )
+
+    assert decision.action == DecisionAction.ROTATE
+    assert decision.inputs["to_symbol"] in mandate.eligible_symbols
+    assert "rotating from weaker held" in decision.reason
