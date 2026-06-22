@@ -54,10 +54,7 @@ DEFAULT_STABLE_SYMBOLS = {
     "XUSD",
 }
 
-DEFAULT_ROUTE_DISABLED_SYMBOLS = {
-    # Live TWAK/LiquidMesh verification on BSC reverted for XRP contract routes.
-    "XRP",
-}
+DEFAULT_ROUTE_DISABLED_SYMBOLS: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -136,6 +133,9 @@ def load_config() -> AppConfig:
             "ROUTE_DISABLED_SYMBOLS",
             DEFAULT_ROUTE_DISABLED_SYMBOLS,
         ),
+        trade_each_tick=_bool_env("TRADE_EACH_TICK", True),
+        min_executable_trade_usd=_float_env("MIN_EXECUTABLE_TRADE_USD", 1.0),
+        stable_spend_buffer_pct=_float_env("STABLE_SPEND_BUFFER_PCT", 3.0),
         max_data_age_seconds=_int_env("MAX_DATA_AGE_SECONDS", 600),
         kill_switch_path=kill_switch_path,
     )

@@ -69,9 +69,11 @@ route: USDC(USDC) -> XRP(0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe)
 
 That route line is the value TWAK receives. It prevents a CMC-ranked token such as XRP from failing because the TWAK symbol resolver does not know `XRP` on BSC.
 
-Route support is still execution-provider dependent. During live verification, TWAK/LiquidMesh quoted the CMC XRP BEP-20 route but reverted on submission for both `XRP -> ETH` and `XRP -> USDC`. For that reason `ROUTE_DISABLED_SYMBOLS=XRP` is the default execution blocklist: XRP remains visible in raw CMC market data, but the agent will not choose it as a buy target or funding source until the route is proven executable again.
+Route support is still execution-provider dependent. XRP is executable through its CMC BSC contract route, but near-full-balance USD sizing can ask TWAK to spend slightly more token units than the wallet holds. The agent applies `STABLE_SPEND_BUFFER_PCT` when spending stable balances and uses buffered sizing for recycle trades, so XRP should stay enabled unless a route repeatedly fails after contract routing and spend-buffer sizing. Use `ROUTE_DISABLED_SYMBOLS` only as an emergency blocklist.
 
 When free USDC can satisfy the minimum order, the agent buys from USDC first. When free USDC is below the minimum order, it recycles the weakest executable non-target holding into USDC; the next tick can deploy that cash into the strongest opportunity. It will not sell the target asset just to buy the same asset again.
+
+`TRADE_EACH_TICK=true` is the aggressive competition setting. In that mode the agent still scans and ranks the full market, but it treats the cash buffer as advisory and can spend executable stable balances below `MIN_DAILY_TRADE_USD` as long as they are above `MIN_EXECUTABLE_TRADE_USD`. This is why a wallet with `USD1` but almost no `USDC` can still buy: USD1 is routed by its BSC contract address, not by the unsupported TWAK symbol.
 
 Practical tuning:
 

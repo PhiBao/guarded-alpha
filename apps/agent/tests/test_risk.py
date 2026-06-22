@@ -115,6 +115,7 @@ def test_risk_rejects_rotation_that_exceeds_position_cap(tmp_path) -> None:
         load_config().mandate,
         kill_switch_path=str(tmp_path / "KILL_SWITCH"),
         max_position_pct=30.0,
+        trade_each_tick=False,
     )
     snapshot = fixture_snapshot()
     portfolio = PortfolioState(

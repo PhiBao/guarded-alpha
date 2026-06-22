@@ -78,7 +78,7 @@ def evaluate_risk(
         stable_after = portfolio.stable_value_usd - decision.notional_usd
     else:
         stable_after = portfolio.stable_value_usd
-    if stable_after < mandate.min_cash_buffer_usd:
+    if stable_after < mandate.min_cash_buffer_usd and not mandate.trade_each_tick:
         reasons.append(
             f"Cash buffer after trade ${stable_after:.2f} would fall below "
             f"${mandate.min_cash_buffer_usd:.2f}."
@@ -87,14 +87,17 @@ def evaluate_risk(
     if decision.action in {DecisionAction.BUY, DecisionAction.ROTATE} and target_symbol:
         target_after = portfolio.positions.get(target_symbol, 0.0) + decision.notional_usd
         target_after_pct = (target_after / portfolio.total_value_usd) * 100.0
-        if target_after_pct > mandate.max_position_pct:
+        if target_after_pct > mandate.max_position_pct and not mandate.trade_each_tick:
             reasons.append(
                 f"Target position after trade {target_after_pct:.2f}% would exceed "
                 f"{mandate.max_position_pct:.2f}% cap."
             )
 
     expected_edge_bps = decision.inputs.get("expected_edge_bps")
-    if decision.action in {DecisionAction.BUY, DecisionAction.ROTATE}:
+    if (
+        decision.action in {DecisionAction.BUY, DecisionAction.ROTATE}
+        and not mandate.trade_each_tick
+    ):
         try:
             edge_bps = int(expected_edge_bps)
         except (TypeError, ValueError):

@@ -219,27 +219,28 @@ def _stable_source_position(
     portfolio: PortfolioState,
     mandate: AgentMandate,
     target_notional_usd: float,
-) -> tuple[str, float]:
+    stable_routes: dict[str, str],
+) -> tuple[str, float, str | None]:
     stable_positions = {
         symbol.upper(): value
         for symbol, value in portfolio.positions.items()
         if symbol.upper() in mandate.stable_symbols and value > 0
     }
     if not stable_positions:
-        return "USDC", 0.0
+        return "USDC", 0.0, None
     usdc_value = stable_positions.get("USDC", 0.0)
     if usdc_value >= target_notional_usd:
-        return "USDC", usdc_value
+        return "USDC", usdc_value, stable_routes.get("USDC")
     sufficient = [
         (symbol, value)
         for symbol, value in stable_positions.items()
         if value >= target_notional_usd
     ]
     if sufficient:
-        return max(sufficient, key=lambda item: item[1])
-    if usdc_value > 0:
-        return "USDC", usdc_value
-    return max(stable_positions.items(), key=lambda item: item[1])
+        symbol, value = max(sufficient, key=lambda item: item[1])
+        return symbol, value, stable_routes.get(symbol)
+    symbol, value = max(stable_positions.items(), key=lambda item: item[1])
+    return symbol, value, stable_routes.get(symbol)
 
 
 def _candidate_rankings(
@@ -261,6 +262,15 @@ def _candidate_rankings(
             }
         )
     return rows
+
+
+def _largest_stable_position(portfolio: PortfolioState, mandate: AgentMandate) -> float:
+    stable_values = [
+        value
+        for symbol, value in portfolio.positions.items()
+        if symbol.upper() in mandate.stable_symbols and value > 0
+    ]
+    return max(stable_values, default=0.0)
 
 
 def _rotate_decision(
@@ -436,7 +446,13 @@ def evaluate_strategy(
     trade_notional = _trade_notional(portfolio, mandate)
     held_positions = _held_non_stable_positions(portfolio, mandate)
     stable_pct = (portfolio.stable_value_usd / portfolio.total_value_usd) * 100.0
-    candidate_rankings = _candidate_rankings(candidates)
+    ranked_candidates = sorted(candidates, key=lambda item: item[2], reverse=True)
+    candidate_rankings = _candidate_rankings(ranked_candidates)
+    stable_routes = {
+        asset.symbol.upper(): _route_identifier(asset)
+        for asset in snapshot.assets
+        if asset.symbol.upper() in mandate.stable_symbols
+    }
     min_sell_notional = min(trade_notional, min_trade_usd)
     sell_candidates = [
         (asset, votes, score, held_positions.get(asset.symbol.upper(), 0.0))
@@ -444,7 +460,21 @@ def evaluate_strategy(
         if held_positions.get(asset.symbol.upper(), 0.0) >= min_sell_notional
     ]
 
-    best_asset, votes, best_score = max(candidates, key=lambda item: item[2])
+    best_asset, votes, best_score = ranked_candidates[0]
+    if mandate.trade_each_tick:
+        stable_spendable = _largest_stable_position(portfolio, mandate) * max(
+            0.0,
+            1.0 - (mandate.stable_spend_buffer_pct / 100.0),
+        )
+        if stable_spendable < mandate.min_executable_trade_usd:
+            for candidate_asset, candidate_votes, candidate_score in ranked_candidates:
+                if _weakest_funding_candidate(sell_candidates, candidate_asset.symbol):
+                    best_asset, votes, best_score = (
+                        candidate_asset,
+                        candidate_votes,
+                        candidate_score,
+                    )
+                    break
     long_votes = sum(1 for vote in votes if vote.direction == VoteDirection.LONG)
     short_votes = sum(1 for vote in votes if vote.direction == VoteDirection.SHORT)
     neutral_votes = sum(1 for vote in votes if vote.direction == VoteDirection.NEUTRAL)
@@ -497,7 +527,8 @@ def evaluate_strategy(
             vibe_score,
         )
 
-    if best_score < min_signal_score and not force_qualification_trade:
+    force_trade = mandate.trade_each_tick or force_qualification_trade
+    if best_score < min_signal_score and not force_trade:
         if sell_candidates:
             weakest_asset, weakest_votes, weakest_score, position_value = min(
                 sell_candidates, key=lambda item: item[2]
@@ -553,8 +584,10 @@ def evaluate_strategy(
             "Daily qualification trade selected below normal threshold, "
             "still subject to risk gate."
         )
+    elif mandate.trade_each_tick and best_score < min_signal_score:
+        reason = "Trade-each-tick mode selected the strongest available opportunity."
 
-    if expected_edge_bps < mandate.min_expected_edge_bps and not force_qualification_trade:
+    if expected_edge_bps < mandate.min_expected_edge_bps and not force_trade:
         return (
             TradeDecision(
                 action=DecisionAction.HOLD,
@@ -588,20 +621,40 @@ def evaluate_strategy(
             vibe_score,
         )
 
-    cash_available = max(portfolio.stable_value_usd - mandate.min_cash_buffer_usd, 0.0)
-    stable_source_symbol, stable_source_value = _stable_source_position(
+    cash_buffer = 0.0 if mandate.trade_each_tick else mandate.min_cash_buffer_usd
+    cash_available = max(portfolio.stable_value_usd - cash_buffer, 0.0)
+    stable_source_symbol, stable_source_value, stable_source_route = _stable_source_position(
         portfolio,
         mandate,
-        cash_available,
+        min(notional_usd, cash_available),
+        stable_routes,
     )
     buy_notional = min(notional_usd, cash_available, stable_source_value)
-    can_buy_from_stable = buy_notional >= min_trade_usd
+    if mandate.trade_each_tick and buy_notional > 0:
+        spend_multiplier = max(0.0, 1.0 - (mandate.stable_spend_buffer_pct / 100.0))
+        buy_notional = _floor_cents(buy_notional * spend_multiplier)
+    min_required_trade = min_trade_usd
+    if mandate.trade_each_tick and stable_source_value > 0:
+        min_required_trade = min(min_trade_usd, stable_source_value)
+        min_required_trade = max(min_required_trade, mandate.min_executable_trade_usd)
+        min_required_trade = _floor_cents(
+            min_required_trade * max(0.0, 1.0 - (mandate.stable_spend_buffer_pct / 100.0))
+        )
+    can_buy_from_stable = buy_notional >= min_required_trade
     if not can_buy_from_stable:
         funding_candidate = _weakest_funding_candidate(sell_candidates, best_asset.symbol)
         if funding_candidate is not None:
             weakest_asset, weakest_votes, weakest_score, position_value = funding_candidate
             recycle_notional = min(notional_usd, position_value)
-            if recycle_notional >= min_trade_usd:
+            if mandate.trade_each_tick and recycle_notional > 0:
+                recycle_notional = _floor_cents(
+                    recycle_notional
+                    * max(0.0, 1.0 - (mandate.stable_spend_buffer_pct / 100.0))
+                )
+            recycle_min_required = (
+                mandate.min_executable_trade_usd if mandate.trade_each_tick else min_trade_usd
+            )
+            if recycle_notional >= recycle_min_required:
                 return _sell_decision(
                     symbol=weakest_asset.symbol,
                     score=weakest_score,
@@ -625,6 +678,8 @@ def evaluate_strategy(
                         "cash_available_usd": round(cash_available, 2),
                         "stable_source_symbol": stable_source_symbol,
                         "stable_source_value_usd": round(stable_source_value, 2),
+                        "stable_source_route": stable_source_route,
+                        "min_required_trade_usd": round(min_required_trade, 2),
                         "stable_symbols": mandate.stable_symbols,
                     },
                     snapshot=snapshot,
@@ -649,6 +704,8 @@ def evaluate_strategy(
                         "cash_available_usd": round(cash_available, 2),
                         "stable_source_symbol": stable_source_symbol,
                         "stable_source_value_usd": round(stable_source_value, 2),
+                        "stable_source_route": stable_source_route,
+                        "min_required_trade_usd": round(min_required_trade, 2),
                         "min_cash_buffer_usd": mandate.min_cash_buffer_usd,
                         "expected_edge_bps": expected_edge_bps,
                         "estimated_cost_bps": estimated_cost_bps,
@@ -687,11 +744,14 @@ def evaluate_strategy(
                     "short_votes": short_votes,
                     "neutral_votes": neutral_votes,
                     "from_symbol": stable_source_symbol,
+                    "from_route": stable_source_route,
                     "to_symbol": best_asset.symbol,
                     "to_address": best_asset.contract_address,
                     "to_route": _route_identifier(best_asset),
                     "cash_available_usd": round(cash_available, 2),
                     "min_cash_buffer_usd": mandate.min_cash_buffer_usd,
+                    "min_required_trade_usd": round(min_required_trade, 2),
+                    "trade_each_tick": mandate.trade_each_tick,
                     "expected_edge_bps": expected_edge_bps,
                     "estimated_cost_bps": estimated_cost_bps,
                     "candidate_rankings": candidate_rankings,

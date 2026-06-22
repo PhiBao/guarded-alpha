@@ -76,6 +76,9 @@ class AgentMandate:
     min_expected_edge_bps: int
     min_signal_score: float
     route_disabled_symbols: set[str]
+    trade_each_tick: bool
+    min_executable_trade_usd: float
+    stable_spend_buffer_pct: float
     max_data_age_seconds: int
     kill_switch_path: str
 
