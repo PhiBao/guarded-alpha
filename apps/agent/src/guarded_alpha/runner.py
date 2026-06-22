@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 
 from guarded_alpha.audit import AuditLog
@@ -12,7 +13,14 @@ from guarded_alpha.cmc import (
 )
 from guarded_alpha.config import AppConfig, load_config
 from guarded_alpha.execution import DryRunExecutionAdapter, ExecutionAdapter, TWAKExecutionAdapter
-from guarded_alpha.models import AgentRun, RiskStatus, now_utc, to_jsonable
+from guarded_alpha.models import (
+    AgentRun,
+    ExecutionMode,
+    ExecutionReceipt,
+    RiskStatus,
+    now_utc,
+    to_jsonable,
+)
 from guarded_alpha.portfolio import (
     FixturePortfolioProvider,
     PortfolioProvider,
@@ -37,6 +45,7 @@ def build_execution_adapter(config: AppConfig) -> ExecutionAdapter:
             config.twak_bin,
             config.competition_contract,
             source_symbol=config.trade_source_symbol,
+            wallet_password=os.getenv("TWAK_WALLET_PASSWORD"),
         )
     return DryRunExecutionAdapter()
 
@@ -64,7 +73,11 @@ def run_once(
     resolved = config or load_config()
     audit = AuditLog(resolved.audit_path)
     snapshot = build_market_provider(resolved).snapshot(resolved.mandate.eligible_symbols)
-    portfolio = build_portfolio_provider(resolved).portfolio()
+    portfolio_provider = build_portfolio_provider(resolved)
+    if isinstance(portfolio_provider, TWAKPortfolioProvider):
+        portfolio = portfolio_provider.portfolio_with_snapshot(snapshot)
+    else:
+        portfolio = portfolio_provider.portfolio()
     decision, vibe_score = evaluate_strategy(
         snapshot,
         portfolio,
@@ -77,7 +90,18 @@ def run_once(
     )
     risk = evaluate_risk(decision, snapshot, portfolio, resolved.mandate)
     execution_adapter = build_execution_adapter(resolved)
-    receipt = execution_adapter.execute(decision, risk)
+    try:
+        receipt = execution_adapter.execute(decision, risk)
+    except Exception as exc:
+        receipt = ExecutionReceipt(
+            mode=ExecutionMode.LIVE if resolved.live_trading_enabled else ExecutionMode.DRY_RUN,
+            submitted=False,
+            tx_hash=None,
+            command=[],
+            quote={},
+            message=f"Execution failed; scheduler will continue: {exc}",
+            executed_at=now_utc(),
+        )
     portfolio_after = None
     if receipt.submitted and resolved.live_trading_enabled:
         try:

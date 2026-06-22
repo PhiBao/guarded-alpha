@@ -54,6 +54,11 @@ def evaluate_risk(
         reasons.append("Decision token is not in the eligible symbol allowlist.")
     if decision.action == DecisionAction.ROTATE and from_symbol not in mandate.eligible_symbols:
         reasons.append("Rotation source token is not in the eligible symbol allowlist.")
+    disabled_routes = mandate.route_disabled_symbols
+    if target_symbol in disabled_routes:
+        reasons.append(f"{target_symbol} is disabled for local TWAK execution routes.")
+    if from_symbol in disabled_routes:
+        reasons.append(f"{from_symbol} is disabled for local TWAK execution routes.")
 
     max_trade_notional = portfolio.total_value_usd * (mandate.max_trade_pct / 100.0)
     if decision.notional_usd <= 0:

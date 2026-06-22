@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
+import time
+import urllib.request
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -20,6 +23,8 @@ from guarded_alpha.models import (
 SAFE_SYMBOL = re.compile(r"^[A-Z0-9]{2,16}$")
 SAFE_ADDRESS = re.compile(r"^0x[a-fA-F0-9]{40}$")
 SAFE_TX_HASH = re.compile(r"^0x[a-fA-F0-9]{64}$")
+TX_HASH_IN_TEXT = re.compile(r"0x[a-fA-F0-9]{64}")
+BSC_RPC_URL = "https://bsc-dataseed.binance.org/"
 
 
 class ExecutionAdapter(Protocol):
@@ -46,6 +51,7 @@ class TWAKExecutionAdapter:
     competition_contract: str
     source_symbol: str = "USDC"
     timeout_seconds: int = 45
+    wallet_password: str | None = None
 
     def execute(self, decision: TradeDecision, risk: RiskVerdict) -> ExecutionReceipt:
         if risk.status != RiskStatus.APPROVED:
@@ -85,13 +91,13 @@ class TWAKExecutionAdapter:
             "bsc",
             "--json",
         ]
-        result = self._run_json(swap_command)
+        result = self._run_swap_with_approval_retry(swap_command)
         tx_hash = _find_tx_hash(result)
         return ExecutionReceipt(
             mode=ExecutionMode.LIVE,
             submitted=True,
             tx_hash=tx_hash,
-            command=[*self._base_command(), *swap_command],
+            command=_redact_command([*self._base_command(), *swap_command]),
             quote=quote,
             message=(
                 "Submitted through TWAK."
@@ -160,6 +166,22 @@ class TWAKExecutionAdapter:
             ]
         )
 
+    def _run_swap_with_approval_retry(self, swap_command: list[str]) -> dict[str, Any]:
+        try:
+            return self._run_json(swap_command)
+        except RuntimeError as exc:
+            approval_tx = _approval_tx_hash(str(exc))
+            if not approval_tx:
+                raise
+            self._wait_for_tx_receipt(approval_tx)
+            try:
+                return self._run_json(swap_command)
+            except RuntimeError as retry_exc:
+                raise RuntimeError(
+                    "twak approval succeeded, but swap retry failed after approval "
+                    f"{approval_tx}: {retry_exc}"
+                ) from retry_exc
+
     def competition_status(self) -> dict[str, Any]:
         return self._run_json(["compete", "status", "--json"])
 
@@ -170,13 +192,27 @@ class TWAKExecutionAdapter:
 
     def _run_json(self, args: list[str]) -> dict[str, Any]:
         self._validate_args(args)
-        completed = subprocess.run(
-            [*self._base_command(), *args],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=self.timeout_seconds,
-        )
+        command = [*self._base_command(), *args]
+        env = os.environ.copy()
+        if self.wallet_password:
+            env["TWAK_WALLET_PASSWORD"] = self.wallet_password
+        try:
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                timeout=self.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = _decode_timeout_output(exc.stdout)
+            stderr = _decode_timeout_output(exc.stderr)
+            output = stderr or stdout or "no TWAK output before timeout"
+            raise RuntimeError(
+                f"twak command timed out after {self.timeout_seconds}s: {output}"
+            ) from exc
         if completed.returncode != 0:
             error_text = (
                 completed.stderr.strip() or completed.stdout.strip() or "unknown TWAK error"
@@ -189,6 +225,42 @@ class TWAKExecutionAdapter:
             return json.loads(stdout)
         except json.JSONDecodeError:
             return {"raw": stdout}
+
+    def _wait_for_tx_receipt(self, tx_hash: str) -> None:
+        deadline = time.monotonic() + float(os.getenv("APPROVAL_WAIT_SECONDS", "45"))
+        while time.monotonic() < deadline:
+            receipt = self._bsc_rpc(
+                "eth_getTransactionReceipt",
+                [tx_hash],
+                timeout=float(os.getenv("BSC_RPC_TIMEOUT_SECONDS", "4")),
+            )
+            if isinstance(receipt, dict):
+                status = str(receipt.get("status") or "").lower()
+                if status == "0x1":
+                    return
+                if status == "0x0":
+                    raise RuntimeError(f"approval transaction failed: {tx_hash}")
+            time.sleep(3)
+        raise RuntimeError(f"approval transaction was not confirmed in time: {tx_hash}")
+
+    def _bsc_rpc(self, method: str, params: list[Any], timeout: float = 4) -> Any:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params,
+        }
+        request = urllib.request.Request(
+            os.getenv("BSC_RPC_URL", BSC_RPC_URL),
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        if "error" in result:
+            raise RuntimeError(str(result["error"]))
+        return result.get("result")
 
     def _validate_args(self, args: list[str]) -> None:
         allowed_prefixes = {
@@ -213,7 +285,7 @@ class TWAKExecutionAdapter:
 
 def _find_tx_hash(value: Any) -> str | None:
     if isinstance(value, str):
-        match = SAFE_TX_HASH.search(value)
+        match = TX_HASH_IN_TEXT.search(value)
         return match.group(0) if match else None
     if isinstance(value, dict):
         for key in ["txHash", "tx_hash", "transactionHash", "transaction_hash", "hash"]:
@@ -232,6 +304,12 @@ def _find_tx_hash(value: Any) -> str | None:
     return None
 
 
+def _approval_tx_hash(text: str) -> str | None:
+    if "approval tx" not in text.lower():
+        return None
+    return _find_tx_hash(text)
+
+
 def _safe_route_token(value: object) -> str:
     token = str(value or "").strip()
     if SAFE_ADDRESS.match(token):
@@ -240,3 +318,25 @@ def _safe_route_token(value: object) -> str:
     if SAFE_SYMBOL.match(symbol):
         return symbol
     raise ValueError("unsafe swap route")
+
+
+def _redact_command(command: list[str]) -> list[str]:
+    redacted: list[str] = []
+    skip_next = False
+    for item in command:
+        if skip_next:
+            redacted.append("[redacted]")
+            skip_next = False
+            continue
+        redacted.append(item)
+        if item == "--password":
+            skip_next = True
+    return redacted
+
+
+def _decode_timeout_output(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace").strip()
+    return value.strip()

@@ -33,18 +33,18 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "[guarded-alpha] starting API on http://127.0.0.1:8000"
-uv run guarded-alpha-api &
+# echo "[guarded-alpha] starting API on http://127.0.0.1:8000"
+# uv run guarded-alpha-api &
 
-echo "[guarded-alpha] starting hourly scheduler"
+echo "[guarded-alpha] starting scheduled scanner"
 uv run guarded-alpha-scheduler &
 
-echo "[guarded-alpha] starting web console on http://127.0.0.1:5173"
-pnpm -C apps/web dev &
+# echo "[guarded-alpha] starting web console on http://127.0.0.1:5173"
+# pnpm -C apps/web dev &
 
 echo
 echo "[guarded-alpha] local agent is running"
-echo "[guarded-alpha] open http://127.0.0.1:5173"
-echo "[guarded-alpha] leave this terminal open; press Ctrl-C to stop"
+# echo "[guarded-alpha] open http://127.0.0.1:5173"
+# echo "[guarded-alpha] leave this terminal open; press Ctrl-C to stop"
 
 wait

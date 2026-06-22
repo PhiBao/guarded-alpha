@@ -9,9 +9,22 @@ from urllib.request import Request, urlopen
 
 from guarded_alpha.execution import TWAKExecutionAdapter
 from guarded_alpha.fixtures import fixture_portfolio
-from guarded_alpha.models import PortfolioState
+from guarded_alpha.models import MarketAsset, MarketSnapshot, PortfolioState
 
 BSC_RPC_URL = "https://bsc-dataseed.binance.org/"
+DEFAULT_BALANCE_AUGMENT_SYMBOLS = {
+    "ADA",
+    "AVAX",
+    "CAKE",
+    "DOGE",
+    "ETH",
+    "LINK",
+    "TRX",
+    "TWT",
+    "USD1",
+    "XRP",
+    "ZEC",
+}
 STABLE_TOKEN_CONTRACTS = {
     "USDC": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
     "USDT": "0x55d398326f99059ff775485246999027b3197955",
@@ -39,6 +52,13 @@ class TWAKPortfolioProvider:
         payload = self.adapter.wallet_portfolio()
         rows = self._extract_holdings(payload)
         rows = self._augment_stable_rows(rows)
+        return self._parse_rows(rows)
+
+    def portfolio_with_snapshot(self, snapshot: MarketSnapshot) -> PortfolioState:
+        payload = self.adapter.wallet_portfolio()
+        rows = self._extract_holdings(payload)
+        rows = self._augment_stable_rows(rows)
+        rows = self._augment_market_asset_rows(rows, snapshot.assets)
         return self._parse_rows(rows)
 
     def _parse_portfolio(self, payload: dict[str, Any] | list[dict[str, Any]]) -> PortfolioState:
@@ -105,6 +125,65 @@ class TWAKPortfolioProvider:
                 )
         return augmented
 
+    def _augment_market_asset_rows(
+        self,
+        rows: list[dict[str, Any]],
+        assets: list[MarketAsset],
+    ) -> list[dict[str, Any]]:
+        wallet_address = self._bsc_wallet_address(rows)
+        if not wallet_address:
+            wallet_address = self._wallet_address_from_twak()
+        if not wallet_address:
+            return rows
+
+        augmented = list(rows)
+        current_values = self._position_values(rows)
+        symbols_to_check = self._balance_augment_symbols()
+        for asset in assets:
+            symbol = asset.symbol.upper()
+            if not asset.contract_address or asset.price_usd <= 0:
+                continue
+            if symbol not in symbols_to_check and symbol not in self.stable_symbols:
+                continue
+            if current_values.get(symbol, 0.0) > 0.01:
+                continue
+            try:
+                raw_balance = self._bep20_balance_of(asset.contract_address, wallet_address)
+            except (TimeoutError, URLError, ValueError, OSError, json.JSONDecodeError):
+                continue
+            usd_value = round((raw_balance / (10**TOKEN_DECIMALS)) * asset.price_usd, 6)
+            if usd_value <= max(current_values.get(symbol, 0.0), 0.01):
+                continue
+            augmented.append(
+                {
+                    "chain": "bsc",
+                    "type": "token",
+                    "symbol": symbol,
+                    "address": wallet_address,
+                    "usdValue": usd_value - current_values.get(symbol, 0.0),
+                    "source": "bsc_rpc_balanceOf_market_asset",
+                }
+            )
+        return augmented
+
+    def _position_values(self, rows: list[dict[str, Any]]) -> dict[str, float]:
+        values: dict[str, float] = {}
+        for row in rows:
+            symbol = str(row.get("symbol") or row.get("token") or row.get("asset") or "").upper()
+            if not symbol:
+                continue
+            values[symbol] = values.get(symbol, 0.0) + self._float_first(
+                row,
+                ["valueUsd", "value_usd", "usdValue", "usd_value", "value"],
+            )
+        return values
+
+    def _balance_augment_symbols(self) -> set[str]:
+        raw = os.getenv("BALANCE_AUGMENT_SYMBOLS")
+        if not raw:
+            return set(DEFAULT_BALANCE_AUGMENT_SYMBOLS)
+        return {item.strip().upper() for item in raw.split(",") if item.strip()}
+
     def _bsc_wallet_address(self, rows: list[dict[str, Any]]) -> str | None:
         for row in rows:
             if str(row.get("chain") or "").lower() != "bsc":
@@ -163,7 +242,8 @@ class TWAKPortfolioProvider:
             headers={"content-type": "application/json"},
             method="POST",
         )
-        with urlopen(request, timeout=8) as response:
+        timeout = float(os.getenv("BSC_RPC_TIMEOUT_SECONDS", "4"))
+        with urlopen(request, timeout=timeout) as response:
             result = json.loads(response.read().decode("utf-8"))
         if "error" in result:
             raise ValueError(str(result["error"]))

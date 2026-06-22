@@ -36,7 +36,28 @@ DEFAULT_ELIGIBLE_SYMBOLS = {
     "ZRO",
 }
 
-DEFAULT_STABLE_SYMBOLS = {"USDT", "USDC", "FDUSD"}
+DEFAULT_STABLE_SYMBOLS = {
+    "DAI",
+    "DUSD",
+    "EURI",
+    "FDUSD",
+    "FRAX",
+    "FRXUSD",
+    "LISUSD",
+    "TUSD",
+    "USDC",
+    "USDD",
+    "USDE",
+    "USDF",
+    "USD1",
+    "USDT",
+    "XUSD",
+}
+
+DEFAULT_ROUTE_DISABLED_SYMBOLS = {
+    # Live TWAK/LiquidMesh verification on BSC reverted for XRP contract routes.
+    "XRP",
+}
 
 
 @dataclass(frozen=True)
@@ -111,6 +132,10 @@ def load_config() -> AppConfig:
         min_cash_buffer_usd=_float_env("MIN_CASH_BUFFER_USD", 3.0),
         min_expected_edge_bps=_int_env("MIN_EXPECTED_EDGE_BPS", 50),
         min_signal_score=_float_env("MIN_SIGNAL_SCORE", 0.20),
+        route_disabled_symbols=_symbols_env(
+            "ROUTE_DISABLED_SYMBOLS",
+            DEFAULT_ROUTE_DISABLED_SYMBOLS,
+        ),
         max_data_age_seconds=_int_env("MAX_DATA_AGE_SECONDS", 600),
         kill_switch_path=kill_switch_path,
     )

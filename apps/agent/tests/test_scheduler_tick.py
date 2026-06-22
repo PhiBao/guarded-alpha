@@ -2,8 +2,9 @@ import json
 from dataclasses import replace
 
 from guarded_alpha.config import load_config
+from guarded_alpha.execution import DryRunExecutionAdapter
 from guarded_alpha.models import now_utc
-from guarded_alpha.runner import run_scheduled_tick
+from guarded_alpha.runner import run_once, run_scheduled_tick
 
 
 def test_scheduled_tick_keeps_scanning_without_daily_run_block(tmp_path) -> None:
@@ -89,3 +90,25 @@ def test_live_scheduled_tick_never_forces_qualification_trade(
     assert captured["kwargs"] == {
         "force_qualification_trade": False,
     }
+
+
+def test_run_once_records_execution_failure_without_crashing(tmp_path, monkeypatch) -> None:
+    config = replace(
+        load_config(),
+        audit_path=tmp_path / "audit.jsonl",
+        live_trading_enabled=True,
+    )
+
+    class FailingAdapter(DryRunExecutionAdapter):
+        def execute(self, decision, risk):  # noqa: ANN001
+            raise RuntimeError("approval succeeded but swap failed")
+
+    from guarded_alpha import runner
+
+    monkeypatch.setattr(runner, "build_execution_adapter", lambda config: FailingAdapter())
+
+    run = run_once(config)
+
+    assert run.receipt is not None
+    assert run.receipt.submitted is False
+    assert "Execution failed; scheduler will continue" in run.receipt.message

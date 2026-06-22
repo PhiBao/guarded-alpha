@@ -103,6 +103,11 @@ def compact_log_line(payload: object) -> str:
     reasons = risk.get("reasons") or []
     if reasons:
         lines.append(f"  risk: {'; '.join(str(reason) for reason in reasons)}")
+    receipt_message = str(receipt.get("message") or "")
+    if receipt_message and (
+        "failed" in receipt_message.lower() or "error" in receipt_message.lower()
+    ):
+        lines.append(f"  receipt: {receipt_message}")
 
     tx_hash = receipt.get("tx_hash")
     if tx_hash:
@@ -215,10 +220,13 @@ def scheduler_main() -> None:
     config = load_config()
     with scheduler_lock(config.data_dir / "scheduler.lock"):
         while True:
-            run = run_scheduled_tick(config)
-            payload = run if run is not None else {
-                "ran": False,
-                "reason": "max daily submitted trade cap reached",
-            }
+            try:
+                run = run_scheduled_tick(config)
+                payload = run if run is not None else {
+                    "ran": False,
+                    "reason": "max daily submitted trade cap reached",
+                }
+            except Exception as exc:
+                payload = {"ran": False, "reason": f"scheduler tick failed: {exc}"}
             _print_payload(payload)
             time.sleep(config.scheduler_interval_seconds)

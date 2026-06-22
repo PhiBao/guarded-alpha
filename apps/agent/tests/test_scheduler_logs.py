@@ -92,3 +92,40 @@ def test_compact_log_line_labels_hold_as_no_trade_candidate() -> None:
     assert "HOLD XRP" not in line
     assert "gates: min_score=0.30 min_edge=50bps" in line
     assert "opportunities: XRP 0.2704/0.4781, ETH 0.2601/0.4702" in line
+
+
+def test_compact_log_line_surfaces_execution_failure() -> None:
+    line = compact_log_line(
+        {
+            "decision": {
+                "action": "rotate",
+                "symbol": "ETH",
+                "score": 0.2611,
+                "notional_usd": 6.15,
+                "reason": "Rotate weaker held asset.",
+                "inputs": {"from_symbol": "XRP", "to_symbol": "ETH"},
+            },
+            "vibe_score": {"confidence": 0.4622},
+            "risk": {"status": "approved", "reasons": ["Risk gate approved inside mandate."]},
+            "receipt": {
+                "mode": "live",
+                "submitted": False,
+                "tx_hash": None,
+                "message": "Execution failed; scheduler will continue: approval succeeded",
+            },
+            "mandate": {
+                "min_signal_score": 0.25,
+                "min_expected_edge_bps": 50,
+                "max_trade_pct": 20,
+                "max_position_pct": 70,
+            },
+            "snapshot": {
+                "assets": [{"symbol": "ETH"}, {"symbol": "XRP"}],
+                "trend_signals": {"market_regime": "selective"},
+                "provenance": {"quote_chunks": 4},
+            },
+        }
+    )
+
+    assert "execution: live / not submitted" in line
+    assert "receipt: Execution failed; scheduler will continue" in line

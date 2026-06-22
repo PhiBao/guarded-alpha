@@ -69,6 +69,10 @@ route: USDC(USDC) -> XRP(0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe)
 
 That route line is the value TWAK receives. It prevents a CMC-ranked token such as XRP from failing because the TWAK symbol resolver does not know `XRP` on BSC.
 
+Route support is still execution-provider dependent. During live verification, TWAK/LiquidMesh quoted the CMC XRP BEP-20 route but reverted on submission for both `XRP -> ETH` and `XRP -> USDC`. For that reason `ROUTE_DISABLED_SYMBOLS=XRP` is the default execution blocklist: XRP remains visible in raw CMC market data, but the agent will not choose it as a buy target or funding source until the route is proven executable again.
+
+When free USDC can satisfy the minimum order, the agent buys from USDC first. When free USDC is below the minimum order, it recycles the weakest executable non-target holding into USDC; the next tick can deploy that cash into the strongest opportunity. It will not sell the target asset just to buy the same asset again.
+
 Practical tuning:
 
 - `MIN_SIGNAL_SCORE=0.20` is selective but reachable.

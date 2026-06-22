@@ -196,6 +196,7 @@ def _held_non_stable_positions(
         for symbol, value in portfolio.positions.items()
         if symbol.upper() in mandate.eligible_symbols
         and symbol.upper() not in mandate.stable_symbols
+        and symbol.upper() not in mandate.route_disabled_symbols
         and value > 0
     }
 
@@ -209,7 +210,36 @@ def _weakest_funding_candidate(
     alternatives = [
         item for item in sell_candidates if item[0].symbol.upper() != target_symbol.upper()
     ]
-    return min(alternatives or sell_candidates, key=lambda item: item[2])
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda item: item[2])
+
+
+def _stable_source_position(
+    portfolio: PortfolioState,
+    mandate: AgentMandate,
+    target_notional_usd: float,
+) -> tuple[str, float]:
+    stable_positions = {
+        symbol.upper(): value
+        for symbol, value in portfolio.positions.items()
+        if symbol.upper() in mandate.stable_symbols and value > 0
+    }
+    if not stable_positions:
+        return "USDC", 0.0
+    usdc_value = stable_positions.get("USDC", 0.0)
+    if usdc_value >= target_notional_usd:
+        return "USDC", usdc_value
+    sufficient = [
+        (symbol, value)
+        for symbol, value in stable_positions.items()
+        if value >= target_notional_usd
+    ]
+    if sufficient:
+        return max(sufficient, key=lambda item: item[1])
+    if usdc_value > 0:
+        return "USDC", usdc_value
+    return max(stable_positions.items(), key=lambda item: item[1])
 
 
 def _candidate_rankings(
@@ -300,9 +330,16 @@ def _sell_decision(
     inputs: dict,
     snapshot: MarketSnapshot,
     portfolio: PortfolioState,
+    from_asset: MarketAsset | None = None,
 ) -> tuple[TradeDecision, VibeScore]:
     stable_symbols = inputs.get("stable_symbols", {"USDC"})
     to_symbol = "USDC" if "USDC" in stable_symbols else next(iter(sorted(stable_symbols)), "USDC")
+    from_address = (
+        from_asset.contract_address if from_asset is not None else inputs.get("from_address")
+    )
+    from_route = (
+        _route_identifier(from_asset) if from_asset is not None else inputs.get("from_route")
+    )
     long_votes = sum(1 for vote in votes if vote.direction == VoteDirection.LONG)
     short_votes = sum(1 for vote in votes if vote.direction == VoteDirection.SHORT)
     neutral_votes = sum(1 for vote in votes if vote.direction == VoteDirection.NEUTRAL)
@@ -333,6 +370,8 @@ def _sell_decision(
                     **inputs,
                     "from_symbol": symbol,
                     "to_symbol": to_symbol,
+                    "from_address": from_address,
+                    "from_route": from_route,
                 },
                 symbol=pipeline_symbol,
                 score=pipeline_score,
@@ -362,7 +401,11 @@ def evaluate_strategy(
     candidates: list[tuple[MarketAsset, list[StrategyVote], float]] = []
     for asset in snapshot.assets:
         symbol = asset.symbol.upper()
-        if symbol in mandate.stable_symbols or symbol not in mandate.eligible_symbols:
+        if (
+            symbol in mandate.stable_symbols
+            or symbol in mandate.route_disabled_symbols
+            or symbol not in mandate.eligible_symbols
+        ):
             continue
         votes = _asset_votes(asset, portfolio, mandate, snapshot.fear_greed, weights)
         candidates.append((asset, votes, _weighted_score(votes)))
@@ -473,6 +516,7 @@ def evaluate_strategy(
                     },
                     snapshot=snapshot,
                     portfolio=portfolio,
+                    from_asset=weakest_asset,
                 )
         return (
             TradeDecision(
@@ -545,36 +589,47 @@ def evaluate_strategy(
         )
 
     cash_available = max(portfolio.stable_value_usd - mandate.min_cash_buffer_usd, 0.0)
-    buy_notional = min(notional_usd, cash_available)
+    stable_source_symbol, stable_source_value = _stable_source_position(
+        portfolio,
+        mandate,
+        cash_available,
+    )
+    buy_notional = min(notional_usd, cash_available, stable_source_value)
     can_buy_from_stable = buy_notional >= min_trade_usd
-    if buy_notional < notional_usd:
+    if not can_buy_from_stable:
         funding_candidate = _weakest_funding_candidate(sell_candidates, best_asset.symbol)
         if funding_candidate is not None:
-            weakest_asset, _weakest_votes, weakest_score, position_value = funding_candidate
-            rotation_notional = min(notional_usd, position_value)
-            if rotation_notional >= min_trade_usd:
-                return _rotate_decision(
-                    from_asset=weakest_asset,
-                    to_asset=best_asset,
-                    score=best_score,
-                    confidence=confidence,
-                    notional_usd=rotation_notional,
+            weakest_asset, weakest_votes, weakest_score, position_value = funding_candidate
+            recycle_notional = min(notional_usd, position_value)
+            if recycle_notional >= min_trade_usd:
+                return _sell_decision(
+                    symbol=weakest_asset.symbol,
+                    score=weakest_score,
+                    notional_usd=recycle_notional,
                     reason=(
-                        f"{best_asset.symbol} has the strongest current edge; rotating "
-                        f"from weaker held {weakest_asset.symbol} instead of spending "
-                        "the cash buffer."
+                        f"{best_asset.symbol} has the strongest current edge, but free "
+                        f"USDC is below the minimum order; recycling weaker held "
+                        f"{weakest_asset.symbol} into USDC first."
                     ),
-                    votes=votes,
+                    votes=weakest_votes,
                     inputs={
                         "stable_pct": stable_pct,
                         "from_position_value_usd": position_value,
                         "from_score": round(weakest_score, 4),
+                        "target_buy_symbol": best_asset.symbol,
+                        "target_buy_score": round(best_score, 4),
+                        "target_buy_confidence": round(confidence, 4),
                         "expected_edge_bps": expected_edge_bps,
                         "estimated_cost_bps": estimated_cost_bps,
                         "candidate_rankings": candidate_rankings,
+                        "cash_available_usd": round(cash_available, 2),
+                        "stable_source_symbol": stable_source_symbol,
+                        "stable_source_value_usd": round(stable_source_value, 2),
+                        "stable_symbols": mandate.stable_symbols,
                     },
                     snapshot=snapshot,
                     portfolio=portfolio,
+                    from_asset=weakest_asset,
                 )
     if not can_buy_from_stable:
         return (
@@ -585,13 +640,15 @@ def evaluate_strategy(
                 notional_usd=0.0,
                 reason=(
                     "Buy signal cleared, but cash buffer left too little USDC and no "
-                    "held asset could be rotated into the target."
+                    "non-target held asset could be recycled into USDC."
                 ),
                 inputs=_decision_inputs(
                     base={
                         "best_symbol": best_asset.symbol,
                         "stable_pct": stable_pct,
                         "cash_available_usd": round(cash_available, 2),
+                        "stable_source_symbol": stable_source_symbol,
+                        "stable_source_value_usd": round(stable_source_value, 2),
                         "min_cash_buffer_usd": mandate.min_cash_buffer_usd,
                         "expected_edge_bps": expected_edge_bps,
                         "estimated_cost_bps": estimated_cost_bps,
@@ -605,17 +662,13 @@ def evaluate_strategy(
                     action=DecisionAction.HOLD,
                     reason=(
                         "Buy signal cleared, but cash buffer left too little USDC and no "
-                        "held asset could be rotated into the target."
+                        "non-target held asset could be recycled into USDC."
                     ),
                 ),
             ),
             vibe_score,
         )
 
-    stable_source_symbol = next(
-        iter(sorted(mandate.stable_symbols & set(portfolio.positions))),
-        "USDC",
-    )
     return (
         TradeDecision(
             action=DecisionAction.BUY,
