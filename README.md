@@ -71,9 +71,9 @@ That route line is the value TWAK receives. It prevents a CMC-ranked token such 
 
 Route support is still execution-provider dependent. XRP is executable through its CMC BSC contract route, but near-full-balance USD sizing can ask TWAK to spend slightly more token units than the wallet holds. The agent applies `STABLE_SPEND_BUFFER_PCT` when spending stable balances and uses buffered sizing for recycle trades, so XRP should stay enabled unless a route repeatedly fails after contract routing and spend-buffer sizing. Use `ROUTE_DISABLED_SYMBOLS` only as an emergency blocklist.
 
-When free USDC can satisfy the minimum order, the agent buys from USDC first. When free USDC is below the minimum order, it recycles the weakest executable non-target holding into USDC; the next tick can deploy that cash into the strongest opportunity. It will not sell the target asset just to buy the same asset again.
+When a buy candidate clears `MIN_SIGNAL_SCORE` and `MIN_EXPECTED_EDGE_BPS`, the agent buys from stable balance first. If stable balance is too low, it can rotate the weakest executable non-target holding directly into that qualified target. It will not sell the target asset just to buy the same asset again.
 
-`TRADE_EACH_TICK=true` is the aggressive competition setting. In that mode the agent still scans and ranks the full market, but it treats the cash buffer as advisory and can spend executable stable balances below `MIN_DAILY_TRADE_USD` as long as they are above `MIN_EXECUTABLE_TRADE_USD`. This is why a wallet with `USD1` but almost no `USDC` can still buy: USD1 is routed by its BSC contract address, not by the unsupported TWAK symbol.
+`TRADE_EACH_TICK=true` is the aggressive competition setting. In that mode the agent still scans and ranks the full market, but it treats the cash buffer as advisory and can spend executable stable balances below `MIN_DAILY_TRADE_USD` as long as they are above `MIN_EXECUTABLE_TRADE_USD`. It does not force below-threshold buys: if no candidate clears the buy gate, the action can be a standalone sell of the weakest held non-stable back to USDC. This is why a wallet with `USD1` but almost no `USDC` can still buy: USD1 is routed by its BSC contract address, not by the unsupported TWAK symbol.
 
 Practical tuning:
 

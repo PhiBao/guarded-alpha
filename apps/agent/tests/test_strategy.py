@@ -18,7 +18,7 @@ def test_choose_trade_selects_best_fixture_candidate() -> None:
     assert decision.score >= mandate.min_signal_score
 
 
-def test_strategy_recycles_held_asset_when_cash_buffer_is_low() -> None:
+def test_strategy_rotates_held_asset_when_cash_buffer_is_low() -> None:
     mandate = replace(load_config().mandate, trade_each_tick=False, min_cash_buffer_usd=5.0)
     low_stable_portfolio = PortfolioState(
         total_value_usd=30.0,
@@ -36,11 +36,10 @@ def test_strategy_recycles_held_asset_when_cash_buffer_is_low() -> None:
         min_trade_usd=5.0,
     )
 
-    assert decision.action == DecisionAction.SELL
+    assert decision.action == DecisionAction.ROTATE
     assert decision.inputs["from_symbol"] in {"ETH", "TWT"}
-    assert decision.inputs["to_symbol"] == "USDC"
-    assert decision.inputs["target_buy_symbol"] in mandate.eligible_symbols
-    assert decision.inputs["target_buy_symbol"] != decision.inputs["from_symbol"]
+    assert decision.inputs["to_symbol"] == decision.symbol
+    assert decision.inputs["to_symbol"] != decision.inputs["from_symbol"]
     assert decision.notional_usd >= 5.0
 
 
@@ -82,7 +81,7 @@ def test_strategy_can_apply_explicit_confidence_gate() -> None:
     assert "high-confidence execution gate" in decision.reason
 
 
-def test_strategy_recycles_weaker_asset_into_stable_when_cash_is_not_enough() -> None:
+def test_strategy_rotates_weaker_asset_into_strong_buy_when_cash_is_not_enough() -> None:
     mandate = replace(load_config().mandate, trade_each_tick=False)
     portfolio = PortfolioState(
         total_value_usd=100.0,
@@ -100,13 +99,12 @@ def test_strategy_recycles_weaker_asset_into_stable_when_cash_is_not_enough() ->
     )
 
     assert vibe_score.symbol in mandate.eligible_symbols
-    assert decision.action == DecisionAction.SELL
+    assert decision.action == DecisionAction.ROTATE
     assert decision.symbol in mandate.eligible_symbols
     assert decision.inputs["from_symbol"] in {"ETH", "TWT"}
-    assert decision.inputs["to_symbol"] == "USDC"
-    assert decision.inputs["target_buy_symbol"] in mandate.eligible_symbols
-    assert decision.inputs["target_buy_symbol"] != decision.inputs["from_symbol"]
-    assert "recycling weaker held" in decision.reason
+    assert decision.inputs["to_symbol"] == decision.symbol
+    assert decision.inputs["to_symbol"] != decision.inputs["from_symbol"]
+    assert "rotating weaker held" in decision.reason
 
 
 def test_strategy_prefers_partial_usdc_buy_before_rotation() -> None:
@@ -132,7 +130,7 @@ def test_strategy_prefers_partial_usdc_buy_before_rotation() -> None:
     assert decision.notional_usd >= 5.0
 
 
-def test_qualification_recycles_to_fund_real_signal() -> None:
+def test_qualification_rotates_to_fund_real_signal() -> None:
     mandate = replace(load_config().mandate, trade_each_tick=False)
     portfolio = PortfolioState(
         total_value_usd=100.0,
@@ -151,10 +149,10 @@ def test_qualification_recycles_to_fund_real_signal() -> None:
         min_score_override=0.2,
     )
 
-    assert decision.action == DecisionAction.SELL
-    assert decision.inputs["to_symbol"] == "USDC"
-    assert decision.inputs["target_buy_symbol"] in mandate.eligible_symbols
-    assert "recycling weaker held" in decision.reason
+    assert decision.action == DecisionAction.ROTATE
+    assert decision.inputs["to_symbol"] in mandate.eligible_symbols
+    assert decision.inputs["to_symbol"] != decision.inputs["from_symbol"]
+    assert "rotating weaker held" in decision.reason
 
 
 def test_trade_each_tick_uses_largest_stable_contract_route() -> None:
@@ -226,10 +224,11 @@ def test_trade_each_tick_recycles_held_asset_when_no_stable_can_execute() -> Non
         fixture_snapshot(),
         portfolio,
         mandate,
-        min_score_override=0.2,
+        min_score_override=0.99,
     )
 
     assert decision.action == DecisionAction.SELL
     assert decision.inputs["from_symbol"] == "ETH"
     assert decision.inputs["to_symbol"] == "USDC"
-    assert decision.inputs["target_buy_symbol"] != "ETH"
+    assert "No buy candidate cleared" in decision.reason
+    assert "target_buy_symbol" not in decision.inputs

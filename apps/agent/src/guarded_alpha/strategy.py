@@ -273,6 +273,16 @@ def _largest_stable_position(portfolio: PortfolioState, mandate: AgentMandate) -
     return max(stable_values, default=0.0)
 
 
+def _buffered_notional(value: float, mandate: AgentMandate) -> float:
+    if value <= 0:
+        return 0.0
+    if not mandate.trade_each_tick:
+        return value
+    return _floor_cents(
+        value * max(0.0, 1.0 - (mandate.stable_spend_buffer_pct / 100.0))
+    )
+
+
 def _rotate_decision(
     *,
     from_asset: MarketAsset,
@@ -461,20 +471,6 @@ def evaluate_strategy(
     ]
 
     best_asset, votes, best_score = ranked_candidates[0]
-    if mandate.trade_each_tick:
-        stable_spendable = _largest_stable_position(portfolio, mandate) * max(
-            0.0,
-            1.0 - (mandate.stable_spend_buffer_pct / 100.0),
-        )
-        if stable_spendable < mandate.min_executable_trade_usd:
-            for candidate_asset, candidate_votes, candidate_score in ranked_candidates:
-                if _weakest_funding_candidate(sell_candidates, candidate_asset.symbol):
-                    best_asset, votes, best_score = (
-                        candidate_asset,
-                        candidate_votes,
-                        candidate_score,
-                    )
-                    break
     long_votes = sum(1 for vote in votes if vote.direction == VoteDirection.LONG)
     short_votes = sum(1 for vote in votes if vote.direction == VoteDirection.SHORT)
     neutral_votes = sum(1 for vote in votes if vote.direction == VoteDirection.NEUTRAL)
@@ -527,23 +523,73 @@ def evaluate_strategy(
             vibe_score,
         )
 
-    force_trade = mandate.trade_each_tick or force_qualification_trade
-    if best_score < min_signal_score and not force_trade:
+    buy_gate_cleared = (
+        best_score >= min_signal_score
+        and expected_edge_bps >= mandate.min_expected_edge_bps
+    )
+    if not buy_gate_cleared and not force_qualification_trade:
         if sell_candidates:
             weakest_asset, weakest_votes, weakest_score, position_value = min(
                 sell_candidates, key=lambda item: item[2]
             )
-            if weakest_score < 0:
+            if weakest_score < 0 or mandate.trade_each_tick:
+                sell_notional = min(trade_notional, position_value, max(min_trade_usd, 1.0))
+                sell_notional = _buffered_notional(sell_notional, mandate)
+                sell_min_required = (
+                    mandate.min_executable_trade_usd
+                    if mandate.trade_each_tick
+                    else min_trade_usd
+                )
+                if sell_notional < sell_min_required:
+                    reason = (
+                        "No buy candidate cleared the minimum score and edge gates, "
+                        "and held exposure was below the executable sell floor."
+                    )
+                    return (
+                        TradeDecision(
+                            action=DecisionAction.HOLD,
+                            symbol=best_asset.symbol,
+                            score=round(best_score, 4),
+                            notional_usd=0.0,
+                            reason=reason,
+                            inputs=_decision_inputs(
+                                base={
+                                    "best_symbol": best_asset.symbol,
+                                    "min_signal_score": min_signal_score,
+                                    "expected_edge_bps": expected_edge_bps,
+                                    "estimated_cost_bps": estimated_cost_bps,
+                                    "candidate_rankings": candidate_rankings,
+                                },
+                                symbol=best_asset.symbol,
+                                score=best_score,
+                                confidence=confidence,
+                                snapshot=snapshot,
+                                portfolio=portfolio,
+                                action=DecisionAction.HOLD,
+                                reason=reason,
+                            ),
+                        ),
+                        vibe_score,
+                    )
                 return _sell_decision(
                     symbol=weakest_asset.symbol,
                     score=weakest_score,
-                    notional_usd=min(trade_notional, position_value, max(min_trade_usd, 1.0)),
-                    reason="Weakest held asset has negative BNB Vibe Score; reducing exposure.",
+                    notional_usd=sell_notional,
+                    reason=(
+                        "No buy candidate cleared the minimum score and edge gates; "
+                        f"reducing weakest held {weakest_asset.symbol} to USDC."
+                    ),
                     votes=weakest_votes,
                     inputs={
                         "stable_pct": stable_pct,
                         "position_value_usd": position_value,
                         "stable_symbols": mandate.stable_symbols,
+                        "best_symbol": best_asset.symbol,
+                        "best_score": round(best_score, 4),
+                        "min_signal_score": min_signal_score,
+                        "expected_edge_bps": expected_edge_bps,
+                        "estimated_cost_bps": estimated_cost_bps,
+                        "candidate_rankings": candidate_rankings,
                     },
                     snapshot=snapshot,
                     portfolio=portfolio,
@@ -555,7 +601,10 @@ def evaluate_strategy(
                 symbol=best_asset.symbol,
                 score=round(best_score, 4),
                 notional_usd=0.0,
-                reason="BNB Vibe Score did not clear the minimum signal threshold.",
+                reason=(
+                    "No buy candidate cleared the minimum score and edge gates, and "
+                    "there was no held asset to reduce."
+                ),
                 inputs=_decision_inputs(
                     base={
                         "best_symbol": best_asset.symbol,
@@ -570,7 +619,10 @@ def evaluate_strategy(
                     snapshot=snapshot,
                     portfolio=portfolio,
                     action=DecisionAction.HOLD,
-                    reason="BNB Vibe Score did not clear the minimum signal threshold.",
+                    reason=(
+                        "No buy candidate cleared the minimum score and edge gates, and "
+                        "there was no held asset to reduce."
+                    ),
                 ),
             ),
             vibe_score,
@@ -587,7 +639,7 @@ def evaluate_strategy(
     elif mandate.trade_each_tick and best_score < min_signal_score:
         reason = "Trade-each-tick mode selected the strongest available opportunity."
 
-    if expected_edge_bps < mandate.min_expected_edge_bps and not force_trade:
+    if expected_edge_bps < mandate.min_expected_edge_bps and not force_qualification_trade:
         return (
             TradeDecision(
                 action=DecisionAction.HOLD,
@@ -631,47 +683,38 @@ def evaluate_strategy(
     )
     buy_notional = min(notional_usd, cash_available, stable_source_value)
     if mandate.trade_each_tick and buy_notional > 0:
-        spend_multiplier = max(0.0, 1.0 - (mandate.stable_spend_buffer_pct / 100.0))
-        buy_notional = _floor_cents(buy_notional * spend_multiplier)
+        buy_notional = _buffered_notional(buy_notional, mandate)
     min_required_trade = min_trade_usd
     if mandate.trade_each_tick and stable_source_value > 0:
         min_required_trade = min(min_trade_usd, stable_source_value)
         min_required_trade = max(min_required_trade, mandate.min_executable_trade_usd)
-        min_required_trade = _floor_cents(
-            min_required_trade * max(0.0, 1.0 - (mandate.stable_spend_buffer_pct / 100.0))
-        )
+        min_required_trade = _buffered_notional(min_required_trade, mandate)
     can_buy_from_stable = buy_notional >= min_required_trade
     if not can_buy_from_stable:
         funding_candidate = _weakest_funding_candidate(sell_candidates, best_asset.symbol)
         if funding_candidate is not None:
             weakest_asset, weakest_votes, weakest_score, position_value = funding_candidate
             recycle_notional = min(notional_usd, position_value)
-            if mandate.trade_each_tick and recycle_notional > 0:
-                recycle_notional = _floor_cents(
-                    recycle_notional
-                    * max(0.0, 1.0 - (mandate.stable_spend_buffer_pct / 100.0))
-                )
+            recycle_notional = _buffered_notional(recycle_notional, mandate)
             recycle_min_required = (
                 mandate.min_executable_trade_usd if mandate.trade_each_tick else min_trade_usd
             )
             if recycle_notional >= recycle_min_required:
-                return _sell_decision(
-                    symbol=weakest_asset.symbol,
-                    score=weakest_score,
+                return _rotate_decision(
+                    from_asset=weakest_asset,
+                    to_asset=best_asset,
+                    score=best_score,
+                    confidence=confidence,
                     notional_usd=recycle_notional,
                     reason=(
-                        f"{best_asset.symbol} has the strongest current edge, but free "
-                        f"USDC is below the minimum order; recycling weaker held "
-                        f"{weakest_asset.symbol} into USDC first."
+                        f"{best_asset.symbol} cleared the buy gate; rotating weaker held "
+                        f"{weakest_asset.symbol} directly into the target."
                     ),
-                    votes=weakest_votes,
+                    votes=votes,
                     inputs={
                         "stable_pct": stable_pct,
                         "from_position_value_usd": position_value,
                         "from_score": round(weakest_score, 4),
-                        "target_buy_symbol": best_asset.symbol,
-                        "target_buy_score": round(best_score, 4),
-                        "target_buy_confidence": round(confidence, 4),
                         "expected_edge_bps": expected_edge_bps,
                         "estimated_cost_bps": estimated_cost_bps,
                         "candidate_rankings": candidate_rankings,
@@ -684,7 +727,6 @@ def evaluate_strategy(
                     },
                     snapshot=snapshot,
                     portfolio=portfolio,
-                    from_asset=weakest_asset,
                 )
     if not can_buy_from_stable:
         return (
