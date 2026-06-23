@@ -242,3 +242,18 @@ systemctl --user stop guarded-alpha-scheduler.service
 ```
 
 Remove the kill switch only after reviewing wallet state, the latest run card, and scheduler logs.
+
+For the local script runner, the scheduler lock means another process is already active:
+
+```bash
+pgrep -af guarded-alpha-scheduler
+tail -n 80 data/local-agent.log
+```
+
+To intentionally replace the local scheduler and clear the emergency halt:
+
+```bash
+./scripts/start-local-agent.sh --force
+```
+
+`--force` kills existing local scheduler processes, removes `data/scheduler.lock`, and removes `data/KILL_SWITCH` before preflight.
