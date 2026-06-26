@@ -60,6 +60,7 @@ class PortfolioState:
     daily_pnl_pct: float
     drawdown_pct: float
     positions: dict[str, float]
+    cost_basis: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,13 @@ class AgentMandate:
     stable_spend_buffer_pct: float
     max_data_age_seconds: int
     kill_switch_path: str
+    rotate_source_symbols: set[str] = field(default_factory=set)
+    bnb_gas_reserve_pct: float = 30.0
+    take_profit_pct: float = 8.0
+    stop_loss_pct: float = 5.0
+    rotate_decay_bps: int = 150
+    chase_pnl: bool = True
+    min_trade_notional_usd: float = 1.0
 
 
 @dataclass(frozen=True)

@@ -21,11 +21,8 @@ def compact_log_line(payload: object) -> str:
 
     decision = row.get("decision") or {}
     vibe_score = row.get("vibe_score") or {}
-    risk = row.get("risk") or {}
     receipt = row.get("receipt") or {}
     snapshot = row.get("snapshot") or {}
-    mandate = row.get("mandate") or {}
-    provenance = snapshot.get("provenance") or {}
     inputs = decision.get("inputs") or {}
 
     raw_action = str(decision.get("action") or "unknown").lower()
@@ -33,87 +30,68 @@ def compact_log_line(payload: object) -> str:
     symbol = decision.get("symbol") or "NONE"
     score = _fmt_float(decision.get("score"))
     confidence = _fmt_float(vibe_score.get("confidence"))
-    notional = _fmt_usd(decision.get("notional_usd"))
-    risk_status = str(risk.get("status") or "unknown").upper()
-    mode = str(receipt.get("mode") or "unknown")
-    submitted = "submitted" if receipt.get("submitted") else "not submitted"
-    market_regime = (snapshot.get("trend_signals") or {}).get("market_regime", "unknown")
-    assets_scanned = len(snapshot.get("assets") or [])
-    chunks = provenance.get("quote_chunks", "n/a")
+    submitted = "live" if receipt.get("submitted") else "dry"
+    regime = (snapshot.get("trend_signals") or {}).get("market_regime", "?")
+    scanned = len(snapshot.get("assets") or [])
     edge_bps = inputs.get("expected_edge_bps")
-    cost_bps = inputs.get("estimated_cost_bps")
-    opportunities = _fmt_opportunities(inputs.get("candidate_rankings"))
-    gates = _fmt_gates(mandate)
-    route = _fmt_route(inputs, symbol)
+    net_edge_bps = inputs.get("net_edge_bps")
+    from_sym = inputs.get("from_symbol", "")
+    to_sym = inputs.get("to_symbol", "")
+    top_opps = _fmt_top_opp(inputs.get("candidate_rankings"))
+    tx_hash = receipt.get("tx_hash")
+    tx = f" tx={tx_hash[:10]}" if tx_hash else ""
 
-    target_buy = inputs.get("target_buy_symbol")
     if raw_action == "hold":
-        headline = (
-            f"[guarded-alpha] NO TRADE | candidate={symbol} score={score} "
-            f"conf={confidence} risk={risk_status}"
-        )
-    elif raw_action == "rotate":
-        headline = (
-            f"[guarded-alpha] ROTATE {inputs.get('from_symbol', 'UNKNOWN')} -> "
-            f"{inputs.get('to_symbol', symbol)} | score={score} conf={confidence} "
-            f"edge={_fmt_bps(edge_bps)} cost={_fmt_bps(cost_bps)} "
-            f"notional={notional} risk={risk_status}"
-        )
-    elif target_buy:
-        headline = (
-            f"[guarded-alpha] {action} {symbol} | target={target_buy} score={score} "
-            f"conf={confidence} notional={notional} risk={risk_status}"
-        )
-    else:
-        headline = (
-            f"[guarded-alpha] {action} {symbol} | score={score} "
-            f"conf={confidence} notional={notional} risk={risk_status}"
-        )
-
-    lines = [
-        headline,
-        f"  why: {decision.get('reason', 'no reason recorded')}",
-        (
-            f"  market: regime={market_regime} scanned={assets_scanned} "
-            f"cmc_chunks={chunks}"
-        ),
-        f"  execution: {mode} / {submitted}",
-    ]
-    if opportunities:
-        lines.insert(2, f"  opportunities: {opportunities}")
-    if gates:
-        lines.insert(2, f"  gates: {gates}")
-    if route and raw_action != "hold":
-        lines.insert(2, f"  route: {route}")
-
-    if target_buy:
-        lines.insert(
-            2,
-            f"  funding: sell {symbol} -> {inputs.get('to_symbol', 'USDC')} to fund {target_buy}",
+        reason_short = _reason_short(str(decision.get("reason", "")))
+        return (
+            f"[guarded-alpha] HOLD {symbol} | {action} sc={score} cf={confidence} "
+            f"r={regime} n={scanned} | {reason_short} | {submitted}{tx}"
         )
     if raw_action == "rotate":
-        lines.insert(
-            2,
-            (
-                f"  rotation: {inputs.get('from_symbol', 'UNKNOWN')} -> "
-                f"{inputs.get('to_symbol', symbol)} without intermediate USDC parking"
-            ),
+        reason_short = _reason_short(str(decision.get("reason", "")))
+        edge_str = f" e={_fmt_bps(net_edge_bps or edge_bps)}" if net_edge_bps or edge_bps else ""
+        return (
+            f"[guarded-alpha] ROTATE {from_sym}->{to_sym or symbol} "
+            f"${decision.get('notional_usd', 0):.2f} "
+            f"sc={score} cf={confidence}{edge_str} "
+            f"r={regime} n={scanned} | {reason_short} | {submitted}{tx}"
+        )
+    if raw_action == "sell":
+        reason_short = _reason_short(str(decision.get("reason", "")))
+        return (
+            f"[guarded-alpha] SELL {symbol} ${decision.get('notional_usd', 0):.2f} "
+            f"-> {to_sym or 'USDC'} sc={score} cf={confidence} "
+            f"r={regime} n={scanned} | {reason_short} | {submitted}{tx}"
         )
 
-    reasons = risk.get("reasons") or []
-    if reasons:
-        lines.append(f"  risk: {'; '.join(str(reason) for reason in reasons)}")
-    receipt_message = str(receipt.get("message") or "")
-    if receipt_message and (
-        "failed" in receipt_message.lower() or "error" in receipt_message.lower()
-    ):
-        lines.append(f"  receipt: {receipt_message}")
+    reason_short = _reason_short(str(decision.get("reason", "")))
+    return (
+        f"[guarded-alpha] {action} {symbol} ${decision.get('notional_usd', 0):.2f} "
+        f"sc={score} cf={confidence} r={regime} n={scanned} "
+        f"{top_opps} | {reason_short} | {submitted}{tx}"
+    )
 
-    tx_hash = receipt.get("tx_hash")
-    if tx_hash:
-        lines.append(f"  tx: {tx_hash}")
 
-    return "\n".join(lines)
+def _reason_short(reason: str) -> str:
+    if not reason or len(reason) <= 40:
+        return reason
+    return reason[:37] + "..."
+
+
+def _fmt_top_opp(value: object) -> str:
+    if not isinstance(value, list) or not value:
+        return ""
+    items = []
+    for row in value[:3]:
+        if not isinstance(row, dict):
+            continue
+        sym = row.get("symbol", "")
+        s = row.get("score")
+        try:
+            items.append(f"{sym}={float(s):.3f}")
+        except (TypeError, ValueError):
+            continue
+    return "|".join(items) if items else ""
 
 
 def _fmt_float(value: object) -> str:
@@ -123,64 +101,11 @@ def _fmt_float(value: object) -> str:
         return "n/a"
 
 
-def _fmt_usd(value: object) -> str:
-    try:
-        return f"${float(value):.2f}"
-    except (TypeError, ValueError):
-        return "$0.00"
-
-
 def _fmt_bps(value: object) -> str:
     try:
         return f"{int(value)}bps"
     except (TypeError, ValueError):
         return "n/a"
-
-
-def _fmt_opportunities(value: object) -> str:
-    if not isinstance(value, list):
-        return ""
-    items: list[str] = []
-    for row in value[:6]:
-        if not isinstance(row, dict):
-            continue
-        symbol = row.get("symbol")
-        score = row.get("score")
-        confidence = row.get("confidence")
-        try:
-            items.append(f"{symbol} {float(score):.4f}/{float(confidence):.4f}")
-        except (TypeError, ValueError):
-            continue
-    return ", ".join(items)
-
-
-def _fmt_gates(mandate: object) -> str:
-    if not isinstance(mandate, dict):
-        return ""
-    min_score = mandate.get("min_signal_score")
-    min_edge = mandate.get("min_expected_edge_bps")
-    max_trade = mandate.get("max_trade_pct")
-    max_position = mandate.get("max_position_pct")
-    try:
-        return (
-            f"min_score={float(min_score):.2f} "
-            f"min_edge={int(min_edge)}bps "
-            f"max_trade={float(max_trade):.0f}% "
-            f"max_position={float(max_position):.0f}% "
-            "score=weighted_alpha_not_confidence"
-        )
-    except (TypeError, ValueError):
-        return ""
-
-
-def _fmt_route(inputs: dict, symbol: object) -> str:
-    from_symbol = inputs.get("from_symbol") or "USDC"
-    to_symbol = inputs.get("to_symbol") or symbol
-    from_route = inputs.get("from_route") or inputs.get("from_address") or from_symbol
-    to_route = inputs.get("to_route") or inputs.get("to_address") or to_symbol
-    if not from_route and not to_route:
-        return ""
-    return f"{from_symbol}({from_route}) -> {to_symbol}({to_route})"
 
 
 def _print_payload(payload: object) -> None:

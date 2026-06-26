@@ -12,9 +12,11 @@ from guarded_alpha.cmc import (
     MarketDataProvider,
 )
 from guarded_alpha.config import AppConfig, load_config
+from guarded_alpha.cost_basis import load_cost_basis, save_cost_basis, update_cost_basis
 from guarded_alpha.execution import DryRunExecutionAdapter, ExecutionAdapter, TWAKExecutionAdapter
 from guarded_alpha.models import (
     AgentRun,
+    DecisionAction,
     ExecutionMode,
     ExecutionReceipt,
     RiskStatus,
@@ -72,6 +74,8 @@ def run_once(
 ) -> AgentRun:
     resolved = config or load_config()
     audit = AuditLog(resolved.audit_path)
+    cost_basis_path = resolved.data_dir / "cost_basis.json"
+    cost_basis = load_cost_basis(cost_basis_path) if resolved.mandate.chase_pnl else None
     snapshot = build_market_provider(resolved).snapshot(resolved.mandate.eligible_symbols)
     portfolio_provider = build_portfolio_provider(resolved)
     if isinstance(portfolio_provider, TWAKPortfolioProvider):
@@ -87,6 +91,7 @@ def run_once(
         min_trade_usd=resolved.min_daily_trade_usd,
         min_score_override=min_score_override,
         min_confidence=min_confidence,
+        cost_basis=cost_basis,
     )
     risk = evaluate_risk(decision, snapshot, portfolio, resolved.mandate)
     execution_adapter = build_execution_adapter(resolved)
@@ -102,6 +107,26 @@ def run_once(
             message=f"Execution failed; scheduler will continue: {exc}",
             executed_at=now_utc(),
         )
+    if receipt.submitted and cost_basis is not None and decision.symbol:
+        target_symbol = str(decision.symbol).upper()
+        if decision.action == DecisionAction.BUY:
+            cost_basis = update_cost_basis(
+                cost_basis, target_symbol, decision.notional_usd, "buy"
+            )
+        elif decision.action == DecisionAction.SELL:
+            cost_basis = update_cost_basis(
+                cost_basis, target_symbol, decision.notional_usd, "sell"
+            )
+        elif decision.action == DecisionAction.ROTATE:
+            from_symbol = str(decision.inputs.get("from_symbol") or "").upper()
+            to_symbol = target_symbol
+            cost_basis = update_cost_basis(
+                cost_basis, from_symbol, decision.notional_usd, "rotate_out"
+            )
+            cost_basis = update_cost_basis(
+                cost_basis, to_symbol, decision.notional_usd, "rotate_in"
+            )
+        save_cost_basis(cost_basis_path, cost_basis)
     portfolio_after = None
     if receipt.submitted and resolved.live_trading_enabled:
         try:

@@ -60,15 +60,19 @@ The scheduler wakes every `SCHEDULER_INTERVAL_SECONDS`, scans the eligible CMC u
 
 ## Reading Scheduler Logs
 
-Compact scheduler logs show both the selected candidate and the broader opportunity scan:
+Each tick is one line:
 
 ```text
-gates: min_score=0.20 min_edge=50bps max_trade=20% max_position=70% score=weighted_alpha_not_confidence
-opportunities: XRP 0.2839/0.5075, ETH 0.2722/0.5035, USD1 0.2526/0.4229
-market: regime=selective scanned=146 cmc_chunks=4
+[guarded-alpha] HOLD XPL sc=0.3348 cf=0.6470 r=defensive n=146 | Buy signal cleared...
+[guarded-alpha] ROTATE BNB->XPL $1.66 sc=0.4411 cf=0.6401 e=2011bps r=defensive n=146 | Rank decay...
+[guarded-alpha] BUY ETH $198.00 sc=0.3723 cf=0.5865 r=selective n=146 | Vibe Score cleared...
+[guarded-alpha] idle | max daily submitted trade cap reached
 ```
 
-`score` is a weighted alpha score, not a confidence percentage. `conf` is separate vote conviction. `scanned=146` means the agent evaluated the broad CMC universe and selected the highest-ranked candidate.
+- `sc` = weighted alpha score, `cf` = confidence, `r` = market regime, `n` = assets scanned
+- `e` = net edge bps on ROTATE lines
+- HOLD lines show why the trade was blocked
+- `scanned=146` means the agent evaluated the broad CMC universe and selected the highest-ranked candidate
 
 ## Verify Services
 

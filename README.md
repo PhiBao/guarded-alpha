@@ -39,7 +39,15 @@ The agent evaluates a constrained in-scope universe using seven voters:
 
 Votes are weighted, normalized, and converted into a BNB Vibe Score. A trade executes only after the risk governor approves it.
 
-The agent is not a one-way buyer. If a stronger opportunity clears the edge gate but cash is better preserved for operations, the strategy can rotate a weaker held asset directly into the target, for example `ETH -> XRP`, without parking in USDC for a later cycle.
+In `CHASE_PNL` mode (default: on), the agent adds three PnL-first mechanics:
+
+- **TP/SL exits**: positions with cost basis tracked in `data/cost_basis.json` are sold at +`TAKE_PROFIT_PCT` or -`STOP_LOSS_PCT`.
+- **Rank-decay rotation**: every cycle re-scores held non-stable positions. If the best candidate outscores the weakest held by > `ROTATE_DECAY_BPS`, the agent rotates weakly-performing holdings directly into the top-ranked target — without parking in USDC first.
+- **Regime-aware weights**: when `fear_greed < 20` (extreme fear), momentum weight is boosted to catch rebound moves with conviction. Mean reversion is suppressed.
+
+In defensive regime, `fear_greed < 20` adjusts the weight table: momentum 40%, mean reversion 5%.
+
+The agent is not a one-way buyer. If a stronger opportunity clears the edge gate but cash is better preserved for operations, the strategy can rotate a weaker held asset directly into the target, for example `ETH -> XRP`, or `BNB -> XPL`. BNB is a valid rotation source and keeps a configurable gas reserve (`BNB_GAS_RESERVE_PCT`).
 
 ### How To Read The Score
 
@@ -47,19 +55,20 @@ The agent is not a one-way buyer. If a stronger opportunity clears the edge gate
 
 `confidence` is separate. It measures how decisive the underlying voter signals are. A token can have a decent score with moderate confidence, or high confidence on a risky move that still fails the score or risk gates.
 
-The compact scheduler log prints the active gates:
+The compact scheduler log prints one line per tick:
 
 ```text
-gates: min_score=0.20 min_edge=50bps max_trade=20% max_position=70% score=weighted_alpha_not_confidence
+[guarded-alpha] HOLD XPL sc=0.3348 cf=0.6470 r=defensive n=146 | Buy signal cleared...
+[guarded-alpha] ROTATE BNB->XPL $1.66 sc=0.4411 cf=0.6401 e=2011bps r=defensive n=146 | Rank decay...
+[guarded-alpha] SELL ETH $5.00 -> USDC sc=0.1111 cf=1.0000 r=constructive n=50 | TP: ETH +11.1%...
+[guarded-alpha] BUY ETH $198.00 sc=0.3723 cf=0.5865 r=selective n=146 | Vibe Score cleared...
+[guarded-alpha] idle | max daily submitted trade cap reached
 ```
 
-It also prints the top ranked opportunities:
-
-```text
-opportunities: XRP 0.2839/0.5075, ETH 0.2722/0.5035, USD1 0.2526/0.4229
-```
-
-Each item is `SYMBOL score/confidence`. If `candidate=XRP` appears, that means XRP was the highest-ranked asset after scanning the broader universe; it does not mean the agent only checked XRP.
+- `sc` = weighted alpha score, `cf` = confidence, `r` = market regime, `n` = assets scanned
+- `e` = net edge bps (score edge minus estimated costs), shown on ROTATE lines
+- For HOLD, the reason suffix tells what blocked the trade
+- Top-3 candidates are shown as `SYM=0.xxx|SYM=0.xxx|SYM=0.xxx` on BUY lines
 
 When TWAK does not support a token symbol on BSC, the execution route uses the CMC BSC contract address:
 
@@ -81,13 +90,19 @@ Practical tuning:
 - `MIN_SIGNAL_SCORE=0.30` is very strict for this formula; in recent full-universe scans no token cleared it.
 - `MIN_EXPECTED_EDGE_BPS=50` requires the score to clear the threshold by at least 50 bps of modeled edge.
 - Use `MAX_DAILY_TRADES` as a brake, not as a target.
+- `CHASE_PNL=true` enables TP/SL exits, rank-decay rotation, and defensive-regime momentum boost.
+- `MAX_TRADE_PCT` caps each trade at a percentage of portfolio value. For micro-bankrolls, also set `MIN_TRADE_NOTIONAL_USD` so the agent can trade when the percentage cap falls below the daily-min floor.
+- `BNB_GAS_RESERVE_PCT=30` keeps 30% of BNB value as gas reserve when rotating out of BNB.
+- `ROTATE_DECAY_BPS=150` triggers a rotation when an outside candidate outscores the weakest held position by at least 150 bps.
+- `TAKE_PROFIT_PCT=8` and `STOP_LOSS_PCT=5` sell held assets when PnL reaches those thresholds against their cost basis.
+- `ROTATE_SOURCE_SYMBOLS` controls which held assets the agent is allowed to rotate out of. Set explicitly; BNB is included by default with gas reserve.
 
 Each decision is also annotated by a small agent pipeline:
 
 - **Scout** finds CMC candidates and current market regime.
 - **Quant** scores momentum, mean reversion, liquidity, sentiment, regime, route risk, and reserve fit.
 - **Risk** checks bankroll preservation before upside.
-- **Executor** submits only TWAK swaps that passed the deterministic mandate.
+- **Executor** submits only TWAK swaps that passed the deterministic mandate. On successful trade, updates `data/cost_basis.json` for PnL tracking.
 - **Reviewer** writes the proof card for replay and post-trade review.
 
 ## Risk Governor

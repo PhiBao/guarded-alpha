@@ -13,17 +13,33 @@ from guarded_alpha.models import MarketAsset, MarketSnapshot, PortfolioState
 
 BSC_RPC_URL = "https://bsc-dataseed.binance.org/"
 DEFAULT_BALANCE_AUGMENT_SYMBOLS = {
+    "AAVE",
     "ADA",
+    "APE",
     "AVAX",
+    "BNB",
     "CAKE",
     "DOGE",
+    "DOT",
     "ETH",
+    "FET",
+    "INJ",
+    "LAB",
     "LINK",
+    "LTC",
+    "PENDLE",
+    "SFP",
+    "STG",
+    "TAC",
+    "TAG",
     "TRX",
     "TWT",
+    "UNI",
     "USD1",
+    "XPL",
     "XRP",
     "ZEC",
+    "ZRO",
 }
 STABLE_TOKEN_CONTRACTS = {
     "USDC": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",

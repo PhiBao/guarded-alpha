@@ -1,7 +1,7 @@
 from guarded_alpha.scheduler import compact_log_line
 
 
-def test_compact_log_line_summarizes_decision() -> None:
+def test_compact_log_line_rotate() -> None:
     line = compact_log_line(
         {
             "decision": {
@@ -9,53 +9,37 @@ def test_compact_log_line_summarizes_decision() -> None:
                 "symbol": "XRP",
                 "score": 0.2622,
                 "notional_usd": 5.0,
-                "reason": "XRP cleared the buy gate.",
+                "reason": "Rank decay: held BNB score 0.2500 trails best XPL score 0.4400",
                 "inputs": {
-                    "from_symbol": "ETH",
-                    "to_symbol": "XRP",
-                    "from_route": "ETH",
-                    "to_route": "0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe",
-                    "expected_edge_bps": 122,
-                    "estimated_cost_bps": 35,
+                    "from_symbol": "BNB",
+                    "to_symbol": "XPL",
+                    "expected_edge_bps": 2011,
                     "candidate_rankings": [
-                        {"symbol": "XRP", "score": 0.2622, "confidence": 0.4816},
-                        {"symbol": "ETH", "score": 0.2511, "confidence": 0.4722},
+                        {"symbol": "XPL", "score": 0.4411, "confidence": 0.6401},
+                        {"symbol": "CAKE", "score": 0.3148, "confidence": 0.6306},
                     ],
                 },
             },
-            "vibe_score": {"confidence": 0.4816},
+            "vibe_score": {"confidence": 0.6401},
             "risk": {"status": "approved", "reasons": ["Risk gate approved inside mandate."]},
-            "receipt": {"mode": "dry_run", "submitted": False, "tx_hash": None},
-            "mandate": {
-                "min_signal_score": 0.2,
-                "min_expected_edge_bps": 50,
-                "max_trade_pct": 20,
-                "max_position_pct": 70,
-            },
+            "receipt": {"mode": "live", "submitted": True, "tx_hash": "0xabcdef1234"},
             "snapshot": {
-                "assets": [{"symbol": "ETH"}, {"symbol": "XRP"}],
-                "trend_signals": {"market_regime": "selective"},
-                "provenance": {"quote_chunks": 4},
+                "assets": [{} for _ in range(146)],
+                "trend_signals": {"market_regime": "defensive"},
             },
         }
     )
 
-    assert "ROTATE ETH -> XRP" in line
-    assert "edge=122bps cost=35bps" in line
-    assert "why: XRP cleared the buy gate." in line
-    assert (
-        "gates: min_score=0.20 min_edge=50bps max_trade=20% "
-        "max_position=70% score=weighted_alpha_not_confidence"
-    ) in line
-    assert "opportunities: XRP 0.2622/0.4816, ETH 0.2511/0.4722" in line
-    assert (
-        "route: ETH(ETH) -> XRP(0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe)"
-    ) in line
-    assert "rotation: ETH -> XRP without intermediate USDC parking" in line
-    assert "scanned=2" in line
+    assert "ROTATE BNB->XPL" in line
+    assert "$5.00" in line
+    assert "sc=0.2622" in line
+    assert "r=defensive" in line
+    assert "n=146" in line
+    assert "live" in line
+    assert "tx=0xabcdef12" in line
 
 
-def test_compact_log_line_labels_hold_as_no_trade_candidate() -> None:
+def test_compact_log_line_hold() -> None:
     line = compact_log_line(
         {
             "decision": {
@@ -63,69 +47,107 @@ def test_compact_log_line_labels_hold_as_no_trade_candidate() -> None:
                 "symbol": "XRP",
                 "score": 0.2704,
                 "notional_usd": 0.0,
-                "reason": "Risk rejected execution.",
+                "reason": "Buy signal cleared, but cash buffer left too little USDC.",
                 "inputs": {
                     "candidate_rankings": [
                         {"symbol": "XRP", "score": 0.2704, "confidence": 0.4781},
-                        {"symbol": "ETH", "score": 0.2601, "confidence": 0.4702},
                     ],
                 },
             },
             "vibe_score": {"confidence": 0.4781},
             "risk": {"status": "rejected", "reasons": ["Risk rejected execution."]},
             "receipt": {"mode": "live", "submitted": False, "tx_hash": None},
-            "mandate": {
-                "min_signal_score": 0.3,
-                "min_expected_edge_bps": 50,
-                "max_trade_pct": 20,
-                "max_position_pct": 70,
-            },
             "snapshot": {
-                "assets": [{"symbol": "ETH"}, {"symbol": "XRP"}],
+                "assets": [{} for _ in range(146)],
                 "trend_signals": {"market_regime": "defensive"},
-                "provenance": {"quote_chunks": 4},
             },
         }
     )
 
-    assert "NO TRADE | candidate=XRP" in line
-    assert "HOLD XRP" not in line
-    assert "gates: min_score=0.30 min_edge=50bps" in line
-    assert "opportunities: XRP 0.2704/0.4781, ETH 0.2601/0.4702" in line
+    assert "HOLD XRP" in line
+    assert "cash buffer" in line
+    assert "sc=0.2704" in line
+    assert "r=defensive" in line
+    assert "n=146" in line
 
 
-def test_compact_log_line_surfaces_execution_failure() -> None:
+def test_compact_log_line_sell() -> None:
     line = compact_log_line(
         {
             "decision": {
-                "action": "rotate",
+                "action": "sell",
+                "symbol": "ETH",
+                "score": 0.1111,
+                "notional_usd": 5.00,
+                "reason": "TP: ETH +11.1% exceeds +8.0% target.",
+                "inputs": {
+                    "from_symbol": "ETH",
+                    "to_symbol": "USDC",
+                },
+            },
+            "vibe_score": {"confidence": 1.0},
+            "risk": {"status": "approved", "reasons": ["Risk gate approved"]},
+            "receipt": {"mode": "live", "submitted": True, "tx_hash": "0xdeadbeef"},
+            "snapshot": {
+                "assets": [{} for _ in range(50)],
+                "trend_signals": {"market_regime": "constructive"},
+            },
+        }
+    )
+
+    assert "SELL ETH" in line
+    assert "$5.00" in line
+    assert "USDC" in line
+    assert "TP" in line
+    assert "r=constructive" in line
+    assert "n=50" in line
+    assert "tx=0xdeadbeef" in line
+
+
+def test_compact_log_line_execution_failure() -> None:
+    line = compact_log_line(
+        {
+            "decision": {
+                "action": "buy",
                 "symbol": "ETH",
                 "score": 0.2611,
                 "notional_usd": 6.15,
-                "reason": "Rotate weaker held asset.",
-                "inputs": {"from_symbol": "XRP", "to_symbol": "ETH"},
+                "reason": (
+                    "BNB Vibe Score cleared strategy, liquidity, "
+                    "regime, and portfolio filters."
+                ),
+                "inputs": {
+                    "from_symbol": "USDC",
+                    "to_symbol": "ETH",
+                    "candidate_rankings": [
+                        {"symbol": "ETH", "score": 0.2611, "confidence": 0.4622},
+                    ],
+                },
             },
             "vibe_score": {"confidence": 0.4622},
-            "risk": {"status": "approved", "reasons": ["Risk gate approved inside mandate."]},
+            "risk": {"status": "approved"},
             "receipt": {
                 "mode": "live",
                 "submitted": False,
                 "tx_hash": None,
                 "message": "Execution failed; scheduler will continue: approval succeeded",
             },
-            "mandate": {
-                "min_signal_score": 0.25,
-                "min_expected_edge_bps": 50,
-                "max_trade_pct": 20,
-                "max_position_pct": 70,
-            },
             "snapshot": {
-                "assets": [{"symbol": "ETH"}, {"symbol": "XRP"}],
+                "assets": [{} for _ in range(4)],
                 "trend_signals": {"market_regime": "selective"},
-                "provenance": {"quote_chunks": 4},
             },
         }
     )
 
-    assert "execution: live / not submitted" in line
-    assert "receipt: Execution failed; scheduler will continue" in line
+    assert "BUY ETH" in line
+    assert "$6.15" in line
+    assert "sc=0.2611" in line
+    assert "r=selective" in line
+    assert "n=4" in line
+    assert "dry" in line
+
+
+def test_compact_log_line_idle() -> None:
+    line = compact_log_line({"ran": False, "reason": "max daily submitted trade cap reached"})
+    assert "idle" in line
+    assert "max daily" in line

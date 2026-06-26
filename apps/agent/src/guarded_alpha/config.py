@@ -56,6 +56,32 @@ DEFAULT_STABLE_SYMBOLS = {
 
 DEFAULT_ROUTE_DISABLED_SYMBOLS: set[str] = set()
 
+DEFAULT_ROTATE_SOURCE_SYMBOLS = {
+    "AAVE",
+    "ADA",
+    "APE",
+    "ASTER",
+    "AVAX",
+    "BCH",
+    "BNB",
+    "CAKE",
+    "DOGE",
+    "DOT",
+    "ETH",
+    "FET",
+    "FIL",
+    "FLOKI",
+    "INJ",
+    "LINK",
+    "LTC",
+    "PENDLE",
+    "SFP",
+    "TWT",
+    "UNI",
+    "XRP",
+    "ZRO",
+}
+
 
 @dataclass(frozen=True)
 class AppConfig:
@@ -138,6 +164,16 @@ def load_config() -> AppConfig:
         stable_spend_buffer_pct=_float_env("STABLE_SPEND_BUFFER_PCT", 3.0),
         max_data_age_seconds=_int_env("MAX_DATA_AGE_SECONDS", 600),
         kill_switch_path=kill_switch_path,
+        rotate_source_symbols=_symbols_env(
+            "ROTATE_SOURCE_SYMBOLS",
+            DEFAULT_ROTATE_SOURCE_SYMBOLS,
+        ),
+        bnb_gas_reserve_pct=_float_env("BNB_GAS_RESERVE_PCT", 30.0),
+        take_profit_pct=_float_env("TAKE_PROFIT_PCT", 8.0),
+        stop_loss_pct=_float_env("STOP_LOSS_PCT", 5.0),
+        rotate_decay_bps=_int_env("ROTATE_DECAY_BPS", 150),
+        chase_pnl=_bool_env("CHASE_PNL", True),
+        min_trade_notional_usd=_float_env("MIN_TRADE_NOTIONAL_USD", 1.0),
     )
 
     return AppConfig(
