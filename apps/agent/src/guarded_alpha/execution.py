@@ -26,6 +26,28 @@ SAFE_TX_HASH = re.compile(r"^0x[a-fA-F0-9]{64}$")
 TX_HASH_IN_TEXT = re.compile(r"0x[a-fA-F0-9]{64}")
 BSC_RPC_URL = "https://bsc-dataseed.binance.org/"
 
+BSC_TOKEN_ADDRESSES: dict[str, str] = {
+    "AAVE": "0xfb6115445bff7b52feb98650c87f44907e58f802",
+    "ADA": "0x3ee2200efb3400fabb9aacf31297cbdd1d435d47",
+    "APE": "0x434b7bb1d1521aa7ed8a5f2e33d7e63b3167edb5",
+    "AVAX": "0x1ce0c2827e2ef14d5c4f29a091d735a204794041",
+    "BCH": "0x8ff795a6f4d97e7887c79bea79aba5cc76444adf",
+    "DOT": "0x7083609fce4d1d8dc0c979aab8c869ea2c873402",
+    "FET": "0x031b41e504677879370e9dbcf937283a8691fa7f",
+    "FIL": "0x0d8ce2a99bb6e3b7db580ed848240e4a0f9ae153",
+    "FLOKI": "0x2b3f34e9d4b127797ce6244ea3415f33f75a6926",
+    "INJ": "0xa2b726b4565c963b8408e57c46c20a9050d9a5bc",
+    "LINK": "0xf8a0bf9cf54bb92f17374df9eed321e7a5a9587b",
+    "LTC": "0x4338665cbb7b2485a8855a139b75d5e34ab0db94",
+    "PENDLE": "0xb3ed0a426253b81b0ac0be51a3b7b5b3f23bc5da",
+    "SFP": "0xd41fdb03ba84762dd66a0af1a6c8540ff1ba5dfb",
+    "TRX": "0xce7de646e7208a4ef112cb6ed5038fa6cc6b12e3",
+    "TWT": "0x4b0f1812e5df2a09796481ff14017e6005308000",
+    "UNI": "0xbf5140a22578168fd562dccf235e5d43a02ce9b1",
+    "XRP": "0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe",
+    "ZRO": "0x6985884c4392d348587b19cb9eaaf157f13271cd",
+}
+
 
 class ExecutionAdapter(Protocol):
     def execute(self, decision: TradeDecision, risk: RiskVerdict) -> ExecutionReceipt: ...
@@ -138,6 +160,8 @@ class TWAKExecutionAdapter:
             )
         if from_symbol == to_symbol:
             raise ValueError("swap route must change symbols")
+        from_symbol = _resolve_bsc_route(from_symbol)
+        to_symbol = _resolve_bsc_route(to_symbol)
         return from_symbol, to_symbol
 
     def wallet_status(self) -> dict[str, Any]:
@@ -318,6 +342,16 @@ def _safe_route_token(value: object) -> str:
     if SAFE_SYMBOL.match(symbol):
         return symbol
     raise ValueError("unsafe swap route")
+
+
+def _resolve_bsc_route(token: str) -> str:
+    if SAFE_ADDRESS.match(token):
+        return token
+    upper = token.upper()
+    bsc_addr = BSC_TOKEN_ADDRESSES.get(upper)
+    if bsc_addr:
+        return bsc_addr.lower()
+    return token
 
 
 def _redact_command(command: list[str]) -> list[str]:

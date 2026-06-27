@@ -61,7 +61,9 @@ def test_twak_adapter_routes_rotation_directly_between_assets() -> None:
         inputs={"from_symbol": "ETH", "to_symbol": "XRP"},
     )
 
-    assert adapter._route(decision) == ("ETH", "XRP")
+    from_token, to_token = adapter._route(decision)
+    assert from_token == "ETH"
+    assert to_token.startswith("0x")
 
 
 def test_twak_adapter_routes_buy_to_contract_address() -> None:
